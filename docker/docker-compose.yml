@@ -1,0 +1,15 @@
+services:
+  nhmesh-telemetry:
+    build:
+      context: ..
+      dockerfile: docker/nhmesh-telemetry/Dockerfile
+    ports:
+      - 1883:1883
+    environment:
+      - BROKER=mqtt.nhmesh.live
+      - PORT=1883
+      - TOPIC=msh/US/NH/Dump
+      - TLS=false
+      - USERNAME=${MQTT_USERNAME}
+      - PASSWORD=${MQTT_PASSWORD}
+      - NODE_IP=${NODE_IP}
