@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from utils.envdefault import EnvDefault
 from meshtastic.protobuf import mqtt_pb2
 from google.protobuf import json_format
-import traceback
 from elasticsearch import Elasticsearch
 
 
@@ -30,7 +29,7 @@ parser.add_argument('--es-endpoint', action=EnvDefault, envvar="ES_ENDPOINT", de
 args = parser.parse_args()
 
 # Elasticsearch Configuration
-#es = Elasticsearch([args.es_endpoint])  # update as needed
+es = Elasticsearch([args.es_endpoint])  # update as needed
 index_name = 'mesh_packets'
 
 def safe_decode(payload_bytes):
@@ -206,9 +205,9 @@ def on_message(client, userdata, msg):
     }
     
     # Index the document
-    #res = es.options(request_timeout=10).index(index=index_name, document=doc)
+    res = es.options(request_timeout=10).index(index=index_name, document=doc)
     
-    #logging.info(f"Document indexed: {res['_id']}")
+    logging.info(f"Document indexed: {res['_id']}")
 
   except Exception as e:
     logging.exception(f"Error processing message: {e}")
