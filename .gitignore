@@ -1,1 +1,3 @@
 .env
+telemetry.env
+__pycache__
