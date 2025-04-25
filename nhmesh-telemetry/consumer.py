@@ -154,6 +154,7 @@ def handle_meshtastic_mqtt(raw_packet):
       "role": raw_packet.get("payload", {}).get("role"),
       "shortname": raw_packet.get("payload", {}).get("shortname"),
       "text": raw_packet.get("payload", {}).get("text"),
+      "relay_node": raw_packet.get("relay_node"),
     }
     return parsed_data
   except json.JSONDecodeError as e:

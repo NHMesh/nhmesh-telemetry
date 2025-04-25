@@ -99,5 +99,6 @@ This document describes the schema for Meshtastic packets parsed by the `consume
 - **role**: (String) The role or type of the sending node in the Meshtastic network.
 - **shortname**: (String) A shorter, abbreviated name of the sending node.
 - **text**: (String) A text message contained in the payload.
+- **relay_node**: (String) Denotes the current relayer of the packet and the node we think should relay our packet - the next-hop.
 
 This schema provides a consistent view of the data contained within this type of Meshtastic packet, making it easier to process and analyze.
