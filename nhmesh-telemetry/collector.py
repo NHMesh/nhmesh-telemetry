@@ -18,7 +18,7 @@ logging.basicConfig(
 parser = argparse.ArgumentParser()
 parser.add_argument('--broker', default='mqtt.nhmesh.live', action=EnvDefault, envvar="MQTT_ENDPOINT", help='MQTT broker address')
 parser.add_argument('--port', default=1883, type=int, action=EnvDefault, envvar="MQTT_PORT", help='MQTT broker port')
-parser.add_argument('--sub-topic', default='msh/US/#', action=EnvDefault, envvar="MQTT_SUB_TOPIC", help='Root topic')
+parser.add_argument('--sub-topic', default='msh/US/#', action=EnvDefault, envvar="MQTT_SUB_TOPIC", help='MQTT topic to subscribe to')
 parser.add_argument('--mqtt-username', action=EnvDefault, envvar="MQTT_USERNAME", help='MQTT username')
 parser.add_argument('--mqtt-password', action=EnvDefault, envvar="MQTT_PASSWORD", help='MQTT password')
 parser.add_argument('--es-endpoint', action=EnvDefault, envvar="ES_ENDPOINT", default='large4cats', help='Elasticsearch Endpoint')
