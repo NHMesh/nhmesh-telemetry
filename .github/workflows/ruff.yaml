@@ -24,7 +24,7 @@ jobs:
       - name: Run Ruff Format and Check for Changes
         id: ruff_format
         run: |
-          ruff format --check .
+          ruff check --fix .
           if [[ $? -ne 0 ]]; then
             echo "::warning title=Ruff Formatting Issues::Ruff found formatting issues. Running auto-fix..."
             ruff format --fix .
