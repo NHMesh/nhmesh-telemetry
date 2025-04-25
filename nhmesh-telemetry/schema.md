@@ -2,9 +2,21 @@ Markdown
 
 # Meshtastic Packet Schema (Version 1)
 
-This document describes the schema for Meshtastic packets parsed by the `parse_type_two` Python function. This structure represents a flattened dictionary containing various fields related to a Meshtastic communication.
+This document describes the schema for Meshtastic packets parsed by the `consumer` Python module. This structure represents a flattened dictionary containing various fields related to a Meshtastic communication.
 
 ## Schema
+
+```json
+    doc = {
+      "topic": msg.topic,
+      "raw": raw_packet,
+      "parsed": parsed_packet,
+      "timestamp": datetime.now(timezone.utc).isoformat(),
+      "version": "1.0", # todo automatically get version from package data
+    }
+```
+
+### Parsed Packets
 
 ```json
 {
