@@ -1,34 +1,34 @@
 Markdown
 
-# Meshtastic Packet Schema (Version 1\)
+# Meshtastic Packet Schema (Version 1)
 
-This document describes the schema for Meshtastic packets parsed by the \`parse_type_two\` Python function. This structure represents a flattened dictionary containing various fields related to a Meshtastic communication.
+This document describes the schema for Meshtastic packets parsed by the `parse_type_two` Python function. This structure represents a flattened dictionary containing various fields related to a Meshtastic communication.
 
 ## Schema
 
 ```json
 {
-  "from\_id\_num": INTEGER,
-  "to\_id\_num": INTEGER,
+  "from_id_num": INTEGER,
+  "to_id_num": INTEGER,
   "portnum": STRING,
-  "payload\_raw": NULL,
-  "telemetry\_time": INTEGER,
-  "battery\_level": INTEGER,
+  "payload_raw": NULL,
+  "telemetry_time": INTEGER,
+  "battery_level": INTEGER,
   "voltage": FLOAT,
-  "channel\_utilization": INTEGER,
-  "air\_util\_tx": FLOAT,
-  "uptime\_seconds": INTEGER,
-  "packet\_id": INTEGER,
-  "rx\_time": INTEGER,
-  "hop\_limit": NULL,
+  "channel_utilization": INTEGER,
+  "air_util_tx": FLOAT,
+  "uptime_seconds": INTEGER,
+  "packet_id": INTEGER,
+  "rx_time": INTEGER,
+  "hop_limit": NULL,
   "priority": NULL,
-  "from\_id\_str": STRING,
-  "to\_id\_str": NULL,
+  "from_id_str": STRING,
+  "to_id_str": NULL,
   "channel": INTEGER,
-  "hop\_start": INTEGER,
-  "hops\_away": INTEGER,
+  "hop_start": INTEGER,
+  "hops_away": INTEGER,
   "rssi": INTEGER,
-  "sender\_id\_str": STRING,
+  "sender_id_str": STRING,
   "snr": INTEGER,
   "timestamp": INTEGER,
   "type": STRING,
@@ -36,10 +36,10 @@ This document describes the schema for Meshtastic packets parsed by the \`parse_
   "altitude": INTEGER,
   "latitude": FLOAT,
   "longitude": FLOAT,
-  "precision\_bits": INTEGER,
-  "sats\_in\_view": INTEGER,
-  "ground\_speed": FLOAT,
-  "ground\_track": FLOAT,
+  "precision_bits": INTEGER,
+  "sats_in_view": INTEGER,
+  "ground_speed": FLOAT,
+  "ground_track": FLOAT,
   "hardware": STRING,
   "longname": STRING,
   "role": STRING,
@@ -64,7 +64,7 @@ This document describes the schema for Meshtastic packets parsed by the \`parse_
 - **rx_time**: (Integer) The timestamp when this packet was received by the local node (Unix epoch time). This is derived from the 'timestamp' field in the raw packet.
 - **hop_limit**: (Null) The maximum number of hops this packet was allowed to travel. Not present in this packet type.
 - **priority**: (Null) The priority level assigned to this packet. Not present in this packet type.
-- **from_id_str**: (String) A human-readable identifier (e.g., \!7c5ccbd0) of the sending node, often derived from its hardware address. This is taken from the 'sender' field in the raw packet.
+- **from_id_str**: (String) A human-readable identifier (e.g., !7c5ccbd0) of the sending node, often derived from its hardware address. This is taken from the 'sender' field in the raw packet.
 - **to_id_str**: (Null) A human-readable identifier of the recipient node. Not directly available in this packet type.
 - **channel**: (Integer) The communication channel number used for this packet.
 - **hop_start**: (Integer) The hop count at which this packet originated.
