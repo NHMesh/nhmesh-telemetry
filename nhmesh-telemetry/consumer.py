@@ -30,7 +30,7 @@ parser.add_argument('--es-endpoint', action=EnvDefault, envvar="ES_ENDPOINT", de
 args = parser.parse_args()
 
 # Elasticsearch Configuration
-es = Elasticsearch([args.es_endpoint])  # update as needed
+#es = Elasticsearch([args.es_endpoint])  # update as needed
 index_name = 'mesh_packets'
 
 def safe_decode(payload_bytes):
@@ -189,7 +189,7 @@ def on_message(client, userdata, msg):
       except:
         logger.exception("Failed to decode payload as JSON or protobuf")
 
-    logging.debug("Received from `%`", msg.topic)
+    logging.debug("Received from %s", msg.topic)
 
     if "type" in raw_packet:
       parsed_packet = handle_meshtastic_mqtt(raw_packet)
@@ -202,12 +202,13 @@ def on_message(client, userdata, msg):
       "raw": raw_packet,
       "parsed": parsed_packet,
       "timestamp": datetime.now(timezone.utc).isoformat(),
+      "version": "1.0", # todo automatically get version from package data
     }
     
     # Index the document
-    res = es.options(request_timeout=10).index(index=index_name, document=doc)
+    #res = es.options(request_timeout=10).index(index=index_name, document=doc)
     
-    logging.info(f"Document indexed: {res['_id']}")
+    #logging.info(f"Document indexed: {res['_id']}")
 
   except Exception as e:
     logging.exception(f"Error processing message: {e}")
