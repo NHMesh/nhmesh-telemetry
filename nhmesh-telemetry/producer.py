@@ -1,3 +1,5 @@
+import logging
+import sys
 import socket
 import paho.mqtt.client as mqtt
 import json
@@ -5,6 +7,13 @@ import meshtastic
 import meshtastic.tcp_interface
 from pubsub import pub
 import argparse
+from utils.envdefault import EnvDefault
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
 
 class MeshtasticMQTTHandler:
     """
@@ -56,6 +65,7 @@ class MeshtasticMQTTHandler:
             packet (dict): The received packet data.
         """
 
+        logging.info("Packet Received!")
         packet_dict = {}
         for field_descriptor, field_value in packet.items():
             packet_dict[field_descriptor] = field_value
@@ -82,13 +92,13 @@ if __name__ == "__main__":
     """Main entry point for the Meshtastic MQTT handler."""
     
     parser = argparse.ArgumentParser(description='Meshtastic MQTT Handler')
-    parser.add_argument('--broker', default='mqtt.meshtastic.org', help='MQTT broker address')
-    parser.add_argument('--port', default=1883, type=int, help='MQTT broker port')
-    parser.add_argument('--topic', default='#', help='Root topic')
-    parser.add_argument('--tls', action='store_true', help='Enable TLS/SSL')
-    parser.add_argument('--username', default='meshdev', help='MQTT username')
-    parser.add_argument('--password', default='large4cats', help='MQTT password')
-    parser.add_argument('--node-ip', default='', help='Node IP address')
+    parser.add_argument('--broker', default='mqtt.nhmesh.live', action=EnvDefault, envvar="MQTT_ENDPOINT", help='MQTT broker address')
+    parser.add_argument('--port', default=1883, type=int, action=EnvDefault, envvar="MQTT_PORT", help='MQTT broker port')
+    parser.add_argument('--topic', default='msh/US/NH/', action=EnvDefault, envvar="MQTT_TOPIC", help='Root topic')
+    parser.add_argument('--tls', type=bool, default=False, help='Enable TLS/SSL')
+    parser.add_argument('--username', action=EnvDefault, envvar="MQTT_USERNAME", help='MQTT username')
+    parser.add_argument('--password', action=EnvDefault, envvar="MQTT_PASSWORD", help='MQTT password')
+    parser.add_argument('--node-ip', action=EnvDefault, envvar="NODE_IP", help='Node IP address')
     args = parser.parse_args()
 
 
