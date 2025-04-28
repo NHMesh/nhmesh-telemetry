@@ -100,6 +100,19 @@ def handle_producer_mqtt(raw_packet):
       "relay_node": raw_packet.get("relayNode"),
       "tx_after": raw_packet.get("txAfter"),
       "pki_encrypted": raw_packet.get("pkiEncrypted"),
+      "pdop": raw_packet.get("decoded", {}).get("position", {}).get("pdop"),
+      "altitude": raw_packet.get("decoded", {}).get("position", {}).get("altitude"),
+      "latitude": raw_packet.get("decoded", {}).get("position", {}).get("latitude_i"),
+      "longitude": raw_packet.get("decoded", {}).get("position", {}).get("longitude_i"),
+      "precision_bits": raw_packet.get("decoded", {}).get("position", {}).get("precision_bits"),
+      "sats_in_view": raw_packet.get("decoded", {}).get("position", {}).get("sats_in_view"),
+      "ground_speed": raw_packet.get("decoded", {}).get("position", {}).get("ground_speed"),
+      "ground_track": raw_packet.get("decoded", {}).get("position", {}).get("ground_track"),
+      "hardware": raw_packet.get("decoded", {}).get("user", {}).get("hardware"),
+      "longname": raw_packet.get("decoded", {}).get("user", {}).get("longname"),
+      "role": raw_packet.get("decoded", {}).get("user", {}).get("role"),
+      "shortname": raw_packet.get("decoded", {}).get("user", {}).get("shortname"),
+      "text": raw_packet.get("decoded", {}).get("text"),
     }
     return parsed_data
   except json.JSONDecodeError as e:
