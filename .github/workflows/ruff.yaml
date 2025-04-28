@@ -1,0 +1,45 @@
+name: Ruff Format and Push
+
+on:
+  pull_request:
+    branches: [main] # Or your main development branch
+
+jobs:
+  ruff_format:
+    name: Ruff Format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff Format and Check for Changes
+        id: ruff_format
+        run: |
+          ruff check --fix .
+          if [[ $? -ne 0 ]]; then
+            echo "::warning title=Ruff Formatting Issues::Ruff found formatting issues. Running auto-fix..."
+            ruff format --fix .
+            git diff --patch > ruff.patch
+            echo "patch=$(cat ruff.patch)" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Ruff found no formatting issues."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply and Push Changes (if any)
+        if: steps.ruff_format.outputs.has_changes == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: Apply Ruff formatting"
+          file_pattern: "*.py" # Adjust if you have other file types
+          push_options: '--force' # Be careful with force push, consider --force-with-lease
