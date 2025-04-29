@@ -1,0 +1,31 @@
+name: Docker Deploy
+
+on:
+  push:
+    paths:
+      - 'nhmesh-telemetry/**'
+      - 'docker/**'
+      - 'pyproject.toml'
+      - 'poetry.lock'
+
+jobs:
+  deploy:
+    runs-on: collector
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Load environment variables
+        run: |
+          cp docker/telemetry.env .env
+          cat .env
+
+      - name: Build and deploy containers
+        run: |
+          cd docker
+          docker compose -f docker-compose.yml pull
+          docker compose -f docker-compose.yml build --no-cache
+          docker compose -f docker-compose.yml up -d --force-recreate
