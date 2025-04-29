@@ -197,7 +197,7 @@ def on_message(client, userdata, msg):
           raw_packet, always_print_fields_with_no_presence=True
         )
         raw_packet = raw_packet["packet"]
-      except:
+      except protobuf.exceptions.DecodeError:
         logger.exception("Failed to decode payload as JSON or protobuf")
 
     logging.debug("Received from %s", msg.topic)
