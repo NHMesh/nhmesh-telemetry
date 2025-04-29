@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from utils.envdefault import EnvDefault
 from meshtastic.protobuf import mqtt_pb2
 from google.protobuf import json_format
+from google.protobuf import message
 from elasticsearch import Elasticsearch
 
 logging.basicConfig(
@@ -197,9 +198,9 @@ def on_message(client, userdata, msg):
           raw_packet, always_print_fields_with_no_presence=True
         )
         raw_packet = raw_packet["packet"]
-      except:
+      except message.DecodeError:
         logger.exception("Failed to decode payload as JSON or protobuf")
-
+        return
     logging.debug("Received from %s", msg.topic)
 
     if "type" in raw_packet:
@@ -220,6 +221,9 @@ def on_message(client, userdata, msg):
     res = es.options(request_timeout=10).index(index=index_name, document=doc)
     
     logging.info(f"Document indexed: {res['_id']}")
+    
+    payload = json.dumps(doc, default=str)
+    client.publish("msh_parsed", payload)
 
   except Exception as e:
     logging.exception(f"Error processing message: {e}")
