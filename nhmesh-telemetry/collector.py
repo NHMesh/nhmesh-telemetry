@@ -220,6 +220,9 @@ def on_message(client, userdata, msg):
     res = es.options(request_timeout=10).index(index=index_name, document=doc)
     
     logging.info(f"Document indexed: {res['_id']}")
+    
+    payload = json.dumps(doc, default=str)
+    client.publish("msh_parsed", payload)
 
   except Exception as e:
     logging.exception(f"Error processing message: {e}")
