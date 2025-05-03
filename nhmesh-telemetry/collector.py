@@ -115,6 +115,9 @@ def handle_producer_mqtt(raw_packet):
       "shortname": raw_packet.get("decoded", {}).get("user", {}).get("shortName"),
       "text": raw_packet.get("decoded", {}).get("text"),
     }
+
+    parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
+
     return parsed_data
   except json.JSONDecodeError as e:
     logger.exception(f"Error decoding JSON for type 1: {e}")
@@ -168,6 +171,9 @@ def handle_meshtastic_mqtt(raw_packet):
       "text": raw_packet.get("payload", {}).get("text"),
       "relay_node": raw_packet.get("relay_node"),
     }
+    
+    parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
+    
     return parsed_data
   except json.JSONDecodeError as e:
     logger.exception(f"Error decoding JSON for type 2: {e}")
