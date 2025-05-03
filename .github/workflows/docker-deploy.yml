@@ -2,6 +2,8 @@ name: Docker Deploy
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'nhmesh-telemetry/**'
       - 'docker/**'
