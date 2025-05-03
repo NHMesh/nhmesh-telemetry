@@ -103,16 +103,16 @@ def handle_producer_mqtt(raw_packet):
       "pki_encrypted": raw_packet.get("pkiEncrypted"),
       "pdop": raw_packet.get("decoded", {}).get("position", {}).get("pdop"),
       "altitude": raw_packet.get("decoded", {}).get("position", {}).get("altitude"),
-      "latitude": raw_packet.get("decoded", {}).get("position", {}).get("latitude_i"),
-      "longitude": raw_packet.get("decoded", {}).get("position", {}).get("longitude_i"),
-      "precision_bits": raw_packet.get("decoded", {}).get("position", {}).get("precision_bits"),
-      "sats_in_view": raw_packet.get("decoded", {}).get("position", {}).get("sats_in_view"),
-      "ground_speed": raw_packet.get("decoded", {}).get("position", {}).get("ground_speed"),
-      "ground_track": raw_packet.get("decoded", {}).get("position", {}).get("ground_track"),
+      "latitude": raw_packet.get("decoded", {}).get("position", {}).get("latitudeI"),
+      "longitude": raw_packet.get("decoded", {}).get("position", {}).get("longitudeI"),
+      "precision_bits": raw_packet.get("decoded", {}).get("position", {}).get("precisionBits"),
+      "sats_in_view": raw_packet.get("decoded", {}).get("position", {}).get("satsInView"),
+      "ground_speed": raw_packet.get("decoded", {}).get("position", {}).get("groundSpeed"),
+      "ground_track": raw_packet.get("decoded", {}).get("position", {}).get("groundTrack"),
       "hardware": raw_packet.get("decoded", {}).get("user", {}).get("hardware"),
-      "longname": raw_packet.get("decoded", {}).get("user", {}).get("longname"),
+      "longname": raw_packet.get("decoded", {}).get("user", {}).get("longName"),
       "role": raw_packet.get("decoded", {}).get("user", {}).get("role"),
-      "shortname": raw_packet.get("decoded", {}).get("user", {}).get("shortname"),
+      "shortname": raw_packet.get("decoded", {}).get("user", {}).get("shortName"),
       "text": raw_packet.get("decoded", {}).get("text"),
     }
     return parsed_data
@@ -193,11 +193,11 @@ def on_message(client, userdata, msg):
     except json.JSONDecodeError:
       # either the node is of type nRF52 or the the user doesn't have JSON enabled
       try:
-        raw_packet = handle_meshtastic_protobuf(payload)
-        raw_packet = json_format.MessageToDict(
-          raw_packet, always_print_fields_with_no_presence=True
+        protobuf_packet = handle_meshtastic_protobuf(payload)
+        protobuf_packet = json_format.MessageToDict(
+          protobuf_packet, always_print_fields_with_no_presence=True
         )
-        raw_packet = raw_packet["packet"]
+        raw_packet = protobuf_packet["packet"]
       except message.DecodeError:
         logger.exception("Failed to decode payload as JSON or protobuf")
         return
