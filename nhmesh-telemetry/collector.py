@@ -219,7 +219,7 @@ def meshdash_wrapper(parsed_packet) -> dict:
   meshdash_packet["toId"] = parsed_packet["to_id_str"]
   meshdash_packet["timestamp"] = parsed_packet["timestamp"]
 
-  return parsed_packet
+  return meshdash_packet
 
 def on_message(client, userdata, msg):
   try:
