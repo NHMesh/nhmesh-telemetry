@@ -67,6 +67,7 @@ def handle_producer_mqtt(raw_packet):
       "to_id_num": raw_packet.get("to"),
       "portnum": raw_packet.get("decoded", {}).get("portnum"),
       "payload_raw": raw_packet.get("decoded", {}).get("payload"),
+      "decoded": raw_packet.get("decoded", {}),
       "telemetry_time": raw_packet.get("decoded", {}).get("telemetry", {}).get("time"),
       "battery_level": raw_packet.get("decoded", {})
       .get("telemetry", {})
@@ -140,9 +141,10 @@ def handle_meshtastic_mqtt(raw_packet):
       "from_id_num": raw_packet.get("from"),
       "to_id_num": raw_packet.get("to"),
       "portnum": raw_packet.get("type"),  # Using 'type' as portnum equivalent
-      "payload_raw": raw_packet.get(
+      "payload_raw": json.dumps(raw_packet.get(
         "payload", {}
-      ),  # Raw payload not directly available in this type
+      )),  # Raw payload not directly available in this type
+      "decoded": raw_packet.get("payload", {}),
       "telemetry_time": raw_packet.get("timestamp"),
       "battery_level": raw_packet.get("payload", {}).get("battery_level"),
       "voltage": raw_packet.get("payload", {}).get("voltage"),
@@ -205,7 +207,6 @@ def meshdash_wrapper(parsed_packet) -> dict:
   meshdash_packet["app_packet_type"] = app_packet_type
   meshdash_packet["from"] = parsed_packet["from_id_num"]
   meshdash_packet["to"] = parsed_packet["to_id_num"]
-  meshdash_packet["from"] = parsed_packet["from_id_num"]
   meshdash_packet["decoded"] = parsed_packet["decoded"]
   meshdash_packet["id"] = parsed_packet["packet_id"]
   meshdash_packet["rxTime"] = parsed_packet["rx_time"]
@@ -213,13 +214,10 @@ def meshdash_wrapper(parsed_packet) -> dict:
   meshdash_packet["rxRssi"] = parsed_packet["rssi"]
   meshdash_packet["hopLimit"] = parsed_packet["hop_limit"]
   meshdash_packet["hopStart"] = parsed_packet["hop_start"]
-  meshdash_packet["raw"] = json.dumps(parsed_packet["decoded"])
+  meshdash_packet["raw"] = parsed_packet["payload_raw"]
   meshdash_packet["fromId"] = parsed_packet["from_id_str"]
   meshdash_packet["toId"] = parsed_packet["to_id_str"]
   meshdash_packet["timestamp"] = parsed_packet["timestamp"]
-
-
-
 
   return parsed_packet
 
