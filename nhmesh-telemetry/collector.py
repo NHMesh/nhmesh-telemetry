@@ -10,6 +10,7 @@ from meshtastic.protobuf import mqtt_pb2
 from google.protobuf import json_format
 from google.protobuf import message
 from elasticsearch import Elasticsearch
+import enum
 
 logging.basicConfig(
   level=logging.DEBUG,
@@ -31,6 +32,12 @@ args = parser.parse_args()
 es = Elasticsearch([args.es_endpoint])  # update as needed
 index_name = 'mesh_packets'
 
+class PacketType(enum.Enum):
+  TELEMETRY_APP = "Telemetry"
+  POSITION_APP = "Position"
+  USER_INFO = "User Info"
+  NODE_INFO = "Node Info"
+  
 def safe_decode(payload_bytes):
   try:
     return payload_bytes.decode("utf-8")
@@ -103,8 +110,8 @@ def handle_producer_mqtt(raw_packet):
       "pki_encrypted": raw_packet.get("pkiEncrypted"),
       "pdop": raw_packet.get("decoded", {}).get("position", {}).get("pdop"),
       "altitude": raw_packet.get("decoded", {}).get("position", {}).get("altitude"),
-      "latitude": raw_packet.get("decoded", {}).get("position", {}).get("latitudeI"),
-      "longitude": raw_packet.get("decoded", {}).get("position", {}).get("longitudeI"),
+      "latitude": raw_packet.get("decoded", {}).get("position", {}).get("latitude"),
+      "longitude": raw_packet.get("decoded", {}).get("position", {}).get("longitude"),
       "precision_bits": raw_packet.get("decoded", {}).get("position", {}).get("precisionBits"),
       "sats_in_view": raw_packet.get("decoded", {}).get("position", {}).get("satsInView"),
       "ground_speed": raw_packet.get("decoded", {}).get("position", {}).get("groundSpeed"),
@@ -115,6 +122,9 @@ def handle_producer_mqtt(raw_packet):
       "shortname": raw_packet.get("decoded", {}).get("user", {}).get("shortName"),
       "text": raw_packet.get("decoded", {}).get("text"),
     }
+
+    parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
+
     return parsed_data
   except json.JSONDecodeError as e:
     logger.exception(f"Error decoding JSON for type 1: {e}")
@@ -155,8 +165,8 @@ def handle_meshtastic_mqtt(raw_packet):
       "type": raw_packet.get("type"),
       "pdop": raw_packet.get("payload", {}).get("pdop"),
       "altitude": raw_packet.get("payload", {}).get("altitude"),
-      "latitude": raw_packet.get("payload", {}).get("latitude_i"),
-      "longitude": raw_packet.get("payload", {}).get("longitude_i"),
+      "latitude": raw_packet.get("payload", {}).get("latitude"),
+      "longitude": raw_packet.get("payload", {}).get("longitude"),
       "precision_bits": raw_packet.get("payload", {}).get("precision_bits"),
       "sats_in_view": raw_packet.get("payload", {}).get("sats_in_view"),
       "ground_speed": raw_packet.get("payload", {}).get("ground_speed"),
@@ -168,6 +178,9 @@ def handle_meshtastic_mqtt(raw_packet):
       "text": raw_packet.get("payload", {}).get("text"),
       "relay_node": raw_packet.get("relay_node"),
     }
+    
+    parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
+    
     return parsed_data
   except json.JSONDecodeError as e:
     logger.exception(f"Error decoding JSON for type 2: {e}")
@@ -176,7 +189,6 @@ def handle_meshtastic_mqtt(raw_packet):
     logger.exception(f"An error occurred while parsing type 2: {e}")
     return None
 
-
 def handle_meshtastic_protobuf(raw_packet):
   binary_data = base64.b64decode(raw_packet)
   mesh_packet = mqtt_pb2.ServiceEnvelope()
@@ -184,6 +196,32 @@ def handle_meshtastic_protobuf(raw_packet):
 
   return mesh_packet
 
+def meshdash_wrapper(parsed_packet) -> dict:
+  event_id = f"pkt_{parsed_packet['rx_time']}_{parsed_packet['packet_id']}"
+  app_packet_type = PacketType[parsed_packet['portnum']].value
+
+  meshdash_packet = {}
+  meshdash_packet["event_id"] = event_id
+  meshdash_packet["app_packet_type"] = app_packet_type
+  meshdash_packet["from"] = parsed_packet["from_id_num"]
+  meshdash_packet["to"] = parsed_packet["to_id_num"]
+  meshdash_packet["from"] = parsed_packet["from_id_num"]
+  meshdash_packet["decoded"] = parsed_packet["decoded"]
+  meshdash_packet["id"] = parsed_packet["packet_id"]
+  meshdash_packet["rxTime"] = parsed_packet["rx_time"]
+  meshdash_packet["rxSnr"] = parsed_packet["snr"]
+  meshdash_packet["rxRssi"] = parsed_packet["rssi"]
+  meshdash_packet["hopLimit"] = parsed_packet["hop_limit"]
+  meshdash_packet["hopStart"] = parsed_packet["hop_start"]
+  meshdash_packet["raw"] = json.dumps(parsed_packet["decoded"])
+  meshdash_packet["fromId"] = parsed_packet["from_id_str"]
+  meshdash_packet["toId"] = parsed_packet["to_id_str"]
+  meshdash_packet["timestamp"] = parsed_packet["timestamp"]
+
+
+
+
+  return parsed_packet
 
 def on_message(client, userdata, msg):
   try:
@@ -221,8 +259,10 @@ def on_message(client, userdata, msg):
     res = es.options(request_timeout=10).index(index=index_name, document=doc)
     
     logging.info(f"Document indexed: {res['_id']}")
-    
-    payload = json.dumps(doc, default=str)
+
+    meshdash_packet = meshdash_wrapper(parsed_packet)
+
+    payload = json.dumps(meshdash_packet, default=str)
     client.publish("msh_parsed", payload)
 
   except Exception as e:
