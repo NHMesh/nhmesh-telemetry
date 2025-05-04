@@ -234,6 +234,9 @@ def on_message(client, userdata, msg):
           protobuf_packet, always_print_fields_with_no_presence=True
         )
         raw_packet = protobuf_packet["packet"]
+
+        source = "mqtt"
+
       except message.DecodeError:
         logger.exception("Failed to decode payload as JSON or protobuf")
         return
@@ -241,8 +244,10 @@ def on_message(client, userdata, msg):
 
     if "type" in raw_packet:
       parsed_packet = handle_meshtastic_mqtt(raw_packet)
+      source = "mqtt"
     else:
       parsed_packet = handle_producer_mqtt(raw_packet)
+      source = "rf"
 
     # Prepare the document
     doc = {
@@ -261,7 +266,8 @@ def on_message(client, userdata, msg):
     meshdash_packet = meshdash_wrapper(parsed_packet)
 
     payload = json.dumps(meshdash_packet, default=str)
-    client.publish("msh_parsed", payload)
+    topic = f"msh_parsed/{source}/{meshdash_packet['fromId']}"
+    client.publish(topic, payload)
 
   except Exception as e:
     logging.exception(f"Error processing message: {e}")
