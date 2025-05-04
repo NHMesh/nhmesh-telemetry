@@ -1,2 +1,2 @@
-mod util;
 mod health;
+mod util;

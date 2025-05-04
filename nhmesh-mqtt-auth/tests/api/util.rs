@@ -1,5 +1,5 @@
-use std::net::TcpListener;
 use nhmesh_mqtt_auth::run;
+use std::net::TcpListener;
 
 pub fn spawn_app() -> String {
     // Bind to random port
@@ -9,6 +9,6 @@ pub fn spawn_app() -> String {
     // Run server
     let server = run(listener).expect("Failed to bind address");
     let _ = tokio::spawn(server);
-    // Return test url 
+    // Return test url
     format!("http://127.0.0.1:{}", port)
 }
