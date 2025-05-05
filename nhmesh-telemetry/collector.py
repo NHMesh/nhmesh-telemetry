@@ -259,11 +259,11 @@ def meshdash_wrapper(parsed_packet) -> dict:
 
   if app_packet_type == "Text Message": 
     try:
-      meshdash_packet["raw"] = base64.b64decode(meshdash_packet["raw"]).decode("utf-8")
       meshdash_packet["decoded"]["text"] = base64.b64decode(meshdash_packet["raw"]).decode("utf-8")
+      meshdash_packet["raw"] = base64.b64decode(meshdash_packet["raw"]).decode("utf-8")
     except: 
       pass
-    
+
   return meshdash_packet
 
 def on_message(client, userdata, msg):
