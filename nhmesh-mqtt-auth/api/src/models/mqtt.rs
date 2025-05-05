@@ -1,3 +1,4 @@
+use secrecy::SecretString;
 use serde::Deserialize;
 use std::net::IpAddr;
 
@@ -6,6 +7,7 @@ pub struct MqttAuth {
     #[serde(rename = "clientid")]
     pub client_id: String,
     pub username: String,
-    pub password: String,
-    pub ip: IpAddr,
+    pub password: SecretString,
+    #[serde(rename = "ipaddr")]
+    pub ip_addr: IpAddr,
 }

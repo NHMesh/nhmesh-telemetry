@@ -1,9 +1,10 @@
 use config::Config;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct Settings {
     pub app: AppConfig,
+    pub database: DatabaseConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -17,6 +18,19 @@ impl Default for AppConfig {
         Self {
             port: 8080,
             host: "127.0.0.1".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DatabaseConfig {
+    pub url: String,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url: "sqlite://auth-db.sqlite?mode=rwc".to_string(),
         }
     }
 }

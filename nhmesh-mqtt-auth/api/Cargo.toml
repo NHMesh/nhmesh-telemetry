@@ -1,0 +1,33 @@
+[package]
+name = "nhmesh-mqtt-auth"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "nhmesh_mqtt_auth"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nhmesh-mqtt-auth"
+path = "src/main.rs"
+
+[dependencies]
+actix-web = "4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+config = { version = "0.15", features = ["yaml"] }
+tracing = { version = "0.1", features = ["log"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+tracing-log = "0.1"
+secrecy = { version = "0.10", features = ["serde"] }
+entity = { path = "../entity" }
+migration = { path = "../migration" }
+argon2 = { version = "0.5", features = ["std"] }
+anyhow = "1"
+futures = "0.3"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+once_cell = "1"
