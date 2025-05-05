@@ -158,7 +158,7 @@ def handle_producer_mqtt(raw_packet):
       "longname": raw_packet.get("decoded", {}).get("user", {}).get("longName"),
       "role": raw_packet.get("decoded", {}).get("user", {}).get("role"),
       "shortname": raw_packet.get("decoded", {}).get("user", {}).get("shortName"),
-      "text": raw_packet.get("decoded", {}).get("text") or base64.b64decode(raw_packet.get("decoded", {}).get("text")).decode("utf-8"),
+      "text": raw_packet.get("decoded", {}).get("text") or base64.b64decode(raw_packet.get("decoded", {}).get("text", b"")).decode("utf-8"),
     }
 
     parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
@@ -214,7 +214,7 @@ def handle_meshtastic_mqtt(raw_packet):
       "longname": raw_packet.get("payload", {}).get("longname"),
       "role": raw_packet.get("payload", {}).get("role"),
       "shortname": raw_packet.get("payload", {}).get("shortname"),
-      "text": raw_packet.get("payload", {}).get("text") or base64.b64decode(raw_packet.get("payload", "").decode("utf-8")),
+      "text": raw_packet.get("payload", {}).get("text") or base64.b64decode(raw_packet.get("payload", b"")).decode("utf-8"),
       "relay_node": raw_packet.get("relay_node"),
     }
     
