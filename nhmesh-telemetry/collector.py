@@ -33,11 +33,24 @@ es = Elasticsearch([args.es_endpoint])  # update as needed
 index_name = 'mesh_packets'
 
 class PacketType(enum.Enum):
-  TELEMETRY_APP = "Telemetry"
+  ADMIN_APP = "Admin"
+  MAP_REPORT_APP = "Map Report"
+  NEIGHBORINFO_APP = "Neighbor Info"
+  NODEINFO = "Node Info"
+  NODEINFO_APP = "Node Info"
+  POSITION = "Position"
   POSITION_APP = "Position"
+  ROUTING_APP = "Routing"
+  STORE_FORWARD_APP = "Store Forward"
+  TELEMETRY = "Telemetry"
+  TELEMETRY_APP = "Telemetry"
+  TEXT = "Text Message"
+  TEXT_MESSAGE_APP = "Text Message"
+  TRACEROUTE = "Traceroute"
+  TRACEROUTE_APP = "Traceroute"
   USER_INFO = "User Info"
-  NODE_INFO = "Node Info"
-  
+
+
 def safe_decode(payload_bytes):
   try:
     return payload_bytes.decode("utf-8")
@@ -200,7 +213,10 @@ def handle_meshtastic_protobuf(raw_packet):
 
 def meshdash_wrapper(parsed_packet) -> dict:
   event_id = f"pkt_{parsed_packet['rx_time']}_{parsed_packet['packet_id']}"
-  app_packet_type = PacketType[parsed_packet['portnum']].value
+  try:
+    app_packet_type = PacketType[parsed_packet['portnum'].upper()].value
+  except KeyError:
+    app_packet_type = "UNIMPLEMENTED"
 
   meshdash_packet = {}
   meshdash_packet["event_id"] = event_id
