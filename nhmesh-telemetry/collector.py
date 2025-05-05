@@ -11,6 +11,7 @@ from google.protobuf import json_format
 from google.protobuf import message
 from elasticsearch import Elasticsearch
 import enum
+from collections import deque
 
 logging.basicConfig(
   level=logging.DEBUG,
@@ -32,6 +33,28 @@ args = parser.parse_args()
 es = Elasticsearch([args.es_endpoint])  # update as needed
 index_name = 'mesh_packets'
 
+
+class FIFOCache:
+    def __init__(self, capacity=1000):
+        self.capacity = capacity
+        self.cache = deque(maxlen=capacity)
+
+    def add(self, item_id):
+        """Adds a packet ID to the cache. If the cache is full, the oldest item is removed."""
+        self.cache.append(item_id)
+
+    def contains(self, item_id):
+        """Checks if a packet ID is currently in the cache."""
+        return item_id in self.cache
+
+    def get_all(self):
+        """Returns a list of all packet IDs in the cache (in FIFO order)."""
+        return list(self.cache)
+
+    def __len__(self):
+        """Returns the current number of items in the cache."""
+        return len(self.cache)
+    
 class PacketType(enum.Enum):
   ADMIN_APP = "Admin"
   MAP_REPORT_APP = "Map Report"
@@ -50,6 +73,7 @@ class PacketType(enum.Enum):
   TRACEROUTE_APP = "Traceroute"
   USER_INFO = "User Info"
 
+PACKET_ID_CACHE = FIFOCache(capacity=1000)
 
 def safe_decode(payload_bytes):
   try:
@@ -281,9 +305,12 @@ def on_message(client, userdata, msg):
 
     meshdash_packet = meshdash_wrapper(parsed_packet)
 
-    payload = json.dumps(meshdash_packet, default=str)
-    topic = f"msh_parsed/{source}/{meshdash_packet['fromId']}"
-    client.publish(topic, payload)
+    if not PACKET_ID_CACHE.contains(meshdash_packet["id"]):
+      payload = json.dumps(meshdash_packet, default=str)
+      topic = f"msh_parsed/{source}/{meshdash_packet['fromId']}"
+      client.publish(topic, payload)
+      PACKET_ID_CACHE.add(meshdash_packet["id"])
+      
     meshdash_packet["timestamp"] = datetime.now(timezone.utc).isoformat()
     res = es.options(request_timeout=10).index(index="mesh_packets_parsed", document=meshdash_packet)
 
