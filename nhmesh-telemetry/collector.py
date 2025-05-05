@@ -159,12 +159,6 @@ def handle_producer_mqtt(raw_packet):
       "role": raw_packet.get("decoded", {}).get("user", {}).get("role"),
       "shortname": raw_packet.get("decoded", {}).get("user", {}).get("shortName"),
     }
-    try:
-      if "text" in parsed_data["portnum"].lower():
-        parsed_data["text"] = raw_packet.get("decoded", {}).get("text") or base64.b64decode(raw_packet.get("decoded", {}).get("payload", "")).decode("utf-8")
-        parsed_data["raw"] = parsed_data["text"]
-    except:
-      parsed_data["text"] = ""
 
     parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
 
@@ -221,13 +215,6 @@ def handle_meshtastic_mqtt(raw_packet):
       "shortname": raw_packet.get("payload", {}).get("shortname"),
       "relay_node": raw_packet.get("relay_node"),
     }
-
-    try:
-      if "text" in parsed_data["portnum"].lower():
-        parsed_data["text"] = raw_packet.get("payload", {}).get("text") or base64.b64decode(raw_packet.get("payload", "")).decode("utf-8")
-        parsed_data["payload"]["text"] = parsed_data["text"]
-    except:
-      parsed_data["text"] = ""
     
     parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
     
@@ -270,6 +257,13 @@ def meshdash_wrapper(parsed_packet) -> dict:
   meshdash_packet["toId"] = parsed_packet["to_id_str"]
   meshdash_packet["timestamp"] = parsed_packet["timestamp"]
 
+  if app_packet_type == "Text Message": 
+    try:
+      meshdash_packet["raw"] = base64.b64decode(meshdash_packet["raw"]).decode("utf-8")
+      meshdash_packet["decoded"]["text"] = base64.b64decode(meshdash_packet["raw"]).decode("utf-8")
+    except: 
+      pass
+    
   return meshdash_packet
 
 def on_message(client, userdata, msg):
