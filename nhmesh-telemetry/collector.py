@@ -162,6 +162,7 @@ def handle_producer_mqtt(raw_packet):
     try:
       if "text" in parsed_data["portnum"].lower():
         parsed_data["text"] = raw_packet.get("decoded", {}).get("text") or base64.b64decode(raw_packet.get("decoded", {}).get("payload", "")).decode("utf-8")
+        parsed_data["raw"] = parsed_data["text"]
     except:
       parsed_data["text"] = ""
 
@@ -224,6 +225,7 @@ def handle_meshtastic_mqtt(raw_packet):
     try:
       if "text" in parsed_data["portnum"].lower():
         parsed_data["text"] = raw_packet.get("payload", {}).get("text") or base64.b64decode(raw_packet.get("payload", "")).decode("utf-8")
+        parsed_data["payload"]["text"] = parsed_data["text"]
     except:
       parsed_data["text"] = ""
     
