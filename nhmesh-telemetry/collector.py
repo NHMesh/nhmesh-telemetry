@@ -270,7 +270,7 @@ def on_message(client, userdata, msg):
       "topic": msg.topic,
       "raw": raw_packet,
       "parsed": parsed_packet,
-      "timestamp": dtetime.now(timezone.utc).isoformat(),
+      "timestamp": datetime.now(timezone.utc).isoformat(),
       "version": "1.1", # todo automatically get version from package data
     }
     
