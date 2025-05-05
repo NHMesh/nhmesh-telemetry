@@ -284,6 +284,7 @@ def on_message(client, userdata, msg):
     payload = json.dumps(meshdash_packet, default=str)
     topic = f"msh_parsed/{source}/{meshdash_packet['fromId']}"
     client.publish(topic, payload)
+    meshdash_packet["timestamp"] = datetime.now(timezone.utc).isoformat()
     res = es.options(request_timeout=10).index(index="mesh_packets_parsed", document=meshdash_packet)
 
   except Exception as e:
