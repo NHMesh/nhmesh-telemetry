@@ -270,8 +270,8 @@ def on_message(client, userdata, msg):
       "topic": msg.topic,
       "raw": raw_packet,
       "parsed": parsed_packet,
-      "timestamp": datetime.now(timezone.utc).isoformat(),
-      "version": "1.0", # todo automatically get version from package data
+      "timestamp": dtetime.now(timezone.utc).isoformat(),
+      "version": "1.1", # todo automatically get version from package data
     }
     
     # Index the document
@@ -284,6 +284,7 @@ def on_message(client, userdata, msg):
     payload = json.dumps(meshdash_packet, default=str)
     topic = f"msh_parsed/{source}/{meshdash_packet['fromId']}"
     client.publish(topic, payload)
+    res = es.options(request_timeout=10).index(index="msh_packets_parsed", document=meshdash_packet)
 
   except Exception as e:
     logging.exception(f"Error processing message: {e}")
