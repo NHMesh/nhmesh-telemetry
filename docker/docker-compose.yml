@@ -55,6 +55,13 @@ services:
       - mqttdata:/var/log/rmqtt
       - ./rmqtt/rmqtt/rmqtt-plugins:/app/rmqtt/rmqtt-plugins:ro
       - ./rmqtt/rmqtt/rmqtt.toml:/app/rmqtt/rmqtt.toml:ro
+  
+  auth:
+    build:
+      context: ..
+      dockerfile: docker/nhmesh-auth/Dockerfile
+    ports:
+      - "8000:8000"
 
 volumes:
   esdata:
