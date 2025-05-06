@@ -1,0 +1,7 @@
+---
+app:
+  host: 0.0.0.0
+  port: 8000
+
+database:
+  url: "sqlite://auth-db.sqlite?mode=rwc"
