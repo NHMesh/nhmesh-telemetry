@@ -21,6 +21,7 @@ pub fn run(listener: TcpListener, db: DatabaseConnection) -> Result<Server, std:
             .service(routes::health)
             .service(routes::mqtt_auth)
             .service(routes::create_new_user)
+            .service(routes::get_user)
     })
     .listen(listener)?
     .run();

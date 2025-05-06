@@ -1,10 +1,11 @@
-use entity::user::{ActiveModel as UserActiveModel, Model as UserModel};
-use entity::sea_orm::ActiveValue;
+use entity::user::{ActiveModel as UserActiveModel, Model as UserModel, Entity as User};
+use entity::sea_orm::{ActiveValue, DatabaseConnection, EntityTrait, ColumnTrait, QueryFilter, ActiveModelTrait};
 use argon2::{Argon2, Algorithm, Version, Params, password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString}};
 use secrecy::{ExposeSecret, SecretString};
-use anyhow::Result;
-use serde::Deserialize;
+use anyhow::{Result, Context};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
 struct PasswordManager<'key> {
     argon2: Argon2<'key>,
 }
@@ -75,5 +76,66 @@ impl VerifyUser {
         } else {
             Err(anyhow::anyhow!("User is disabled"))
         }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserResponse {
+    pub id: Uuid,
+    pub username: String,
+    pub is_superuser: bool,
+}
+
+impl From<UserModel> for UserResponse {
+    fn from(user: UserModel) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            is_superuser: user.is_superuser,
+        }
+    }
+}
+
+pub struct UserService<'db> {
+    db: &'db DatabaseConnection,
+}
+
+impl<'db> UserService<'db> {
+    pub fn new(db: &'db DatabaseConnection) -> Self {
+        Self { db }
+    }
+
+    pub async fn create_user(&self, create_user: CreateUser) -> Result<UserResponse> {
+        let user_model = create_user.to_model()?;
+        let user = user_model.insert(self.db)
+            .await
+            .context("Failed to insert user")?;
+        Ok(user.into())
+    }
+
+    pub async fn find_by_username(&self, username: &str) -> Result<Option<UserModel>> {
+        User::find()
+            .filter(entity::user::Column::Username.eq(username))
+            .one(self.db)
+            .await
+            .context("Failed to query user")
+    }
+
+    pub async fn find_by_id(&self, id: Uuid) -> Result<Option<UserModel>> {
+        User::find_by_id(id)
+            .one(self.db)
+            .await
+            .context("Failed to query user")
+    }
+
+    pub async fn verify_user(&self, username: &str, password: &str) -> Result<UserResponse> {
+        let user = self.find_by_username(username)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("User not found"))?;
+
+        let verify = VerifyUser::new(username, password);
+        verify.verify(&user)?;
+        
+        Ok(user.into())
     }
 }
