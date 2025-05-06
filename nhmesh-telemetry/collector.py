@@ -305,7 +305,7 @@ def on_message(client, userdata, msg):
       client.publish(topic, payload)
       PACKET_ID_CACHE.add(meshdash_packet["id"])
 
-    meshdash_packet["timestamp"] = datetime.now(timezone.utc).isoformat()
+    meshdash_packet["timestamp"] = datetime.now(timezone.utc).isoformat() 
     try:
       res = es.options(request_timeout=10).index(index="mesh_packets_parsed", document=meshdash_packet)
     except:
