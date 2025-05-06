@@ -6,7 +6,7 @@ import argparse
 from paho.mqtt import client as mqtt_client
 from datetime import datetime, timezone
 from utils.envdefault import EnvDefault
-from meshtastic.protobuf import mqtt_pb2
+from meshtastic.protobuf import mqtt_pb2, mesh_pb2, telemetry_pb2, admin_pb2
 from google.protobuf import json_format
 from google.protobuf import message
 from elasticsearch import Elasticsearch
@@ -61,7 +61,7 @@ class PacketType(enum.Enum):
   NEIGHBORINFO_APP = "Neighbor Info"
   NODEINFO = "Node Info"
   NODEINFO_APP = "Node Info"
-  POSITION = "Position"
+  POSITION = "Position" 
   POSITION_APP = "Position"
   ROUTING_APP = "Routing"
   STORE_FORWARD_APP = "Store Forward"
@@ -171,61 +171,6 @@ def handle_producer_mqtt(raw_packet):
     return None
 
 
-def handle_meshtastic_mqtt(raw_packet):
-  try:
-    parsed_data = {
-      "from_id_num": raw_packet.get("from"),
-      "to_id_num": raw_packet.get("to"),
-      "portnum": raw_packet.get("type"),  # Using 'type' as portnum equivalent
-      "payload_raw": json.dumps(raw_packet.get(
-        "payload", {}
-      )),  # Raw payload not directly available in this type
-      "decoded": raw_packet.get("payload", {}),
-      "telemetry_time": raw_packet.get("timestamp"),
-      "battery_level": raw_packet.get("payload", {}).get("battery_level"),
-      "voltage": raw_packet.get("payload", {}).get("voltage"),
-      "channel_utilization": raw_packet.get("payload", {}).get("channel_utilization"),
-      "air_util_tx": raw_packet.get("payload", {}).get("air_util_tx"),
-      "uptime_seconds": raw_packet.get("payload", {}).get("uptime_seconds"),
-      "packet_id": raw_packet.get("id"),
-      "rx_time": raw_packet.get("timestamp"),  # Using timestamp as rx_time equivalent
-      "hop_limit": None,  # Not directly present (related to hops_away)
-      "priority": None,  # Not present in this type
-      "from_id_str": raw_packet.get("sender"),
-      "to_id_str": None,  # Not directly available, but 'to' is numerical
-      "channel": raw_packet.get("channel"),
-      "hop_start": raw_packet.get("hop_start"),
-      "hops_away": raw_packet.get("hops_away"),
-      "rssi": raw_packet.get("rssi"),
-      "sender_id_str": raw_packet.get("sender"),
-      "snr": raw_packet.get("snr"),
-      "timestamp": raw_packet.get("timestamp"),
-      "type": raw_packet.get("type"),
-      "pdop": raw_packet.get("payload", {}).get("pdop"),
-      "altitude": raw_packet.get("payload", {}).get("altitude"),
-      "latitude": raw_packet.get("payload", {}).get("latitude"),
-      "longitude": raw_packet.get("payload", {}).get("longitude"),
-      "precision_bits": raw_packet.get("payload", {}).get("precision_bits"),
-      "sats_in_view": raw_packet.get("payload", {}).get("sats_in_view"),
-      "ground_speed": raw_packet.get("payload", {}).get("ground_speed"),
-      "ground_track": raw_packet.get("payload", {}).get("ground_track"),
-      "hardware": raw_packet.get("payload", {}).get("hardware"),
-      "longname": raw_packet.get("payload", {}).get("longname"),
-      "role": raw_packet.get("payload", {}).get("role"),
-      "shortname": raw_packet.get("payload", {}).get("shortname"),
-      "relay_node": raw_packet.get("relay_node"),
-    }
-    
-    parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
-    
-    return parsed_data
-  except json.JSONDecodeError as e:
-    logger.exception(f"Error decoding JSON for type 2: {e}")
-    return None
-  except Exception as e:
-    logger.exception(f"An error occurred while parsing type 2: {e}")
-    return None
-
 def handle_meshtastic_protobuf(raw_packet):
   binary_data = base64.b64decode(raw_packet)
   mesh_packet = mqtt_pb2.ServiceEnvelope()
@@ -237,7 +182,7 @@ def meshdash_wrapper(parsed_packet) -> dict:
   event_id = f"pkt_{parsed_packet['rx_time']}_{parsed_packet['packet_id']}"
   try:
     app_packet_type = PacketType[parsed_packet['portnum'].upper()].value
-  except KeyError:
+  except (KeyError, AttributeError):
     app_packet_type = "UNIMPLEMENTED"
 
   meshdash_packet = {}
@@ -267,6 +212,7 @@ def meshdash_wrapper(parsed_packet) -> dict:
   return meshdash_packet
 
 def on_message(client, userdata, msg):
+  packet_type = ""
   try:
     payload = safe_decode(msg.payload)
     try:
@@ -279,20 +225,58 @@ def on_message(client, userdata, msg):
           protobuf_packet, always_print_fields_with_no_presence=True
         )
         raw_packet = protobuf_packet["packet"]
+        raw_packet["gatewayId"] = protobuf_packet["gatewayId"]
+        raw_packet["channelId"] = protobuf_packet["channelId"]
+
+        # Decode the payload and parse the protobuf
+        if payload := raw_packet.get("decoded", {}).get("payload"):
+          payload_bytes = base64.b64decode(payload)
+          
+          mesh_packet = None 
+
+          match raw_packet.get("decoded", {}).get("portnum", ""):
+
+            case "ROUTING_APP":
+              mesh_packet = mesh_pb2.Routing()
+            case "TEXT_MESSAGE_APP":
+              pass
+            case "TELEMETRY_APP":
+              mesh_packet = telemetry_pb2.Telemetry()
+            case "ADMIN_APP":
+              mesh_packet = admin_pb2.AdminMessage()
+            case "POSITION_APP":
+              mesh_packet = mesh_pb2.Position()
+            case "NODEINFO_APP":
+              mesh_packet = mesh_pb2.User()
+            case "TRACEROUTE_APP":
+              mesh_packet = mesh_pb2.RouteDiscovery()
+            case "MAP_REPORT_APP":
+              mesh_packet = mqtt_pb2.MapReport()
+
+          if mesh_packet:
+            mesh_packet.ParseFromString(payload_bytes)
+            mesh_packet = json_format.MessageToDict(
+              mesh_packet, always_print_fields_with_no_presence=True
+            )
+            port_num = raw_packet.get("decoded", {}).get("portnum", "")
+            raw_packet["decoded"] = mesh_packet
+            raw_packet["decoded"]["portnum"] = port_num
 
         source = "mqtt"
+        packet_type = "nfr52"
 
       except message.DecodeError:
         logger.exception("Failed to decode payload as JSON or protobuf")
         return
     logging.debug("Received from %s", msg.topic)
 
+    source = "mqtt" if "gatewayId" in raw_packet else "rf"
+
     if "type" in raw_packet:
-      parsed_packet = handle_meshtastic_mqtt(raw_packet)
-      source = "mqtt"
-    else:
-      parsed_packet = handle_producer_mqtt(raw_packet)
-      source = "rf"
+      raw_packet["decoded"] = raw_packet.get("payload", {})
+      raw_packet["decoded"]["portnum"] = raw_packet.get("type")
+
+    parsed_packet = handle_producer_mqtt(raw_packet)
 
     # Prepare the document
     doc = {
@@ -300,24 +284,32 @@ def on_message(client, userdata, msg):
       "raw": raw_packet,
       "parsed": parsed_packet,
       "timestamp": datetime.now(timezone.utc).isoformat(),
-      "version": "1.1", # todo automatically get version from package data
+      "version": "1.2", # todo automatically get version from package data
     }
     
     # Index the document
-    res = es.options(request_timeout=10).index(index=index_name, document=doc)
-    
-    logging.info(f"Document indexed: {res['_id']}")
+    try:
+      res = es.options(request_timeout=10).index(index=index_name, document=doc)
+      logging.info(f"Document indexed: {res['_id']}")
+    except:
+      logging.exception("es failed")
 
     meshdash_packet = meshdash_wrapper(parsed_packet)
+  
+    if meshdash_packet["app_packet_type"] == "UNIMPLEMENTED":
+      print (raw_packet)
 
     if not PACKET_ID_CACHE.contains(meshdash_packet["id"]):
       payload = json.dumps(meshdash_packet, default=str)
-      topic = f"msh_parsed/{source}/{meshdash_packet['fromId']}"
+      topic = f"msh_parsed/{source}/{meshdash_packet['from']}"
       client.publish(topic, payload)
       PACKET_ID_CACHE.add(meshdash_packet["id"])
 
     meshdash_packet["timestamp"] = datetime.now(timezone.utc).isoformat()
-    res = es.options(request_timeout=10).index(index="mesh_packets_parsed", document=meshdash_packet)
+    try:
+      res = es.options(request_timeout=10).index(index="mesh_packets_parsed", document=meshdash_packet)
+    except:
+      logging.exception("es failed")
 
   except Exception as e:
     logging.exception(f"Error processing message: {e}")
