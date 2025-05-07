@@ -319,7 +319,8 @@ def on_message(client, userdata, msg):
       "status": packet_status,
     }
     topic = f"msh_parsed/{source}/{who_heard['heard_by']}"
-    client.publish(topic, who_heard)
+    payload = json.dumps(who_heard, default=str)
+    client.publish(topic, payload)
 
     try:
       res = es.options(request_timeout=10).index(index="mesh_packets", document=meshdash_packet)
