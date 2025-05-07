@@ -271,6 +271,7 @@ def on_message(client, userdata, msg):
     logging.debug("Received from %s", msg.topic)
 
     source = "mqtt" if "gatewayId" in raw_packet else "rf"
+    gateway_id = raw_packet.get("gatewayId", "NOT IMPLEMENTED")
 
     if "type" in raw_packet:
       raw_packet["decoded"] = raw_packet.get("payload", {})
@@ -284,7 +285,7 @@ def on_message(client, userdata, msg):
       "raw": raw_packet,
       "parsed": parsed_packet,
       "timestamp": datetime.now(timezone.utc).isoformat(),
-      "version": "1.2", # todo automatically get version from package data
+      "version": "1.3", # todo automatically get version from package data
     }
     
     # Index the document
@@ -295,19 +296,40 @@ def on_message(client, userdata, msg):
       logging.exception("es failed")
 
     meshdash_packet = meshdash_wrapper(parsed_packet)
-  
+    meshdash_packet["gateway_id"] = gateway_id
+    meshdash_packet["source"] = source
+
     if meshdash_packet["app_packet_type"] == "UNIMPLEMENTED":
       print (raw_packet)
 
+    packet_status = "dropped"
     if not PACKET_ID_CACHE.contains(meshdash_packet["id"]):
       payload = json.dumps(meshdash_packet, default=str)
       topic = f"msh_parsed/{source}/{meshdash_packet['from']}"
       client.publish(topic, payload)
       PACKET_ID_CACHE.add(meshdash_packet["id"])
+      packet_status = "sent"
 
-    meshdash_packet["timestamp"] = datetime.now(timezone.utc).isoformat() 
+
+    who_heard = {
+      "app_packet_type": "WHO_HEARD",
+      "timestamp": datetime.now(timezone.utc).isoformat(),
+      "heard_by": gateway_id,
+      "packet_id": mesh_packet["packet_id"],
+      "status": packet_status,
+    }
+    topic = f"msh_parsed/{source}/{who_heard['heard_by']}"
+    client.publish(topic, who_heard)
+
     try:
-      res = es.options(request_timeout=10).index(index="mesh_packets_parsed", document=meshdash_packet)
+      res = es.options(request_timeout=10).index(index="mesh_packets", document=meshdash_packet)
+    except:
+      logging.exception("es failed")
+
+    meshdash_packet["timestamp"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+      res = es.options(request_timeout=10).index(index="mesh_packets", document=meshdash_packet)
     except:
       logging.exception("es failed")
 

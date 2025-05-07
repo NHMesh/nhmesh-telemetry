@@ -48,6 +48,9 @@ class MeshtasticMQTTHandler:
         self.mqtt_client.username_pw_set(username=self.username, password=self.password)
                 
         self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self.node_ip) 
+        self.node_info = self.interface.getMyNodeInfo()
+        self.connected_node_id = self.node_info["user"]["id"]
+
         pub.subscribe(self.onReceive, "meshtastic.receive")
 
     def connect(self):
@@ -69,6 +72,8 @@ class MeshtasticMQTTHandler:
         packet_dict = {}
         for field_descriptor, field_value in packet.items():
             packet_dict[field_descriptor] = field_value
+
+        packet_dict["gatewayId"] = self.connected_node_id
 
         self.publish_dict_to_mqtt(packet_dict)
     
