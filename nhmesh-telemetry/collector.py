@@ -294,7 +294,7 @@ def on_message(client, userdata, msg):
       logging.info(f"Document indexed: {res['_id']}")
     except:
       logging.exception("es failed")
-
+fffff
     meshdash_packet = meshdash_wrapper(parsed_packet)
     meshdash_packet["gateway_id"] = gateway_id
     meshdash_packet["source"] = source
