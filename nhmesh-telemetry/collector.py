@@ -294,7 +294,7 @@ def on_message(client, userdata, msg):
       logging.info(f"Document indexed: {res['_id']}")
     except:
       logging.exception("es failed")
-fffff
+
     meshdash_packet = meshdash_wrapper(parsed_packet)
     meshdash_packet["gateway_id"] = gateway_id
     meshdash_packet["source"] = source
@@ -318,7 +318,7 @@ fffff
       "packet_id": meshdash_packet["id"],
       "status": packet_status,
     }
-    topic = f"msh_parsed/{source}/{who_heard['heard_by']}"
+    topic = f"msh_parsed/who_heard/{who_heard['heard_by']}"
     payload = json.dumps(who_heard, default=str)
     client.publish(topic, payload)
 
