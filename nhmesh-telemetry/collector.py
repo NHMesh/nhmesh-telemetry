@@ -315,7 +315,7 @@ def on_message(client, userdata, msg):
       "app_packet_type": "WHO_HEARD",
       "timestamp": datetime.now(timezone.utc).isoformat(),
       "heard_by": gateway_id,
-      "packet_id": mesh_packet["packet_id"],
+      "packet_id": meshdash_packet["id"],
       "status": packet_status,
     }
     topic = f"msh_parsed/{source}/{who_heard['heard_by']}"
