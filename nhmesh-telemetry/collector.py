@@ -271,7 +271,7 @@ def on_message(client, userdata, msg):
     logging.debug("Received from %s", msg.topic)
 
     source = "mqtt" if "gatewayId" in raw_packet else "rf"
-    gateway_id = raw_packet.get("gatewayId", "NOT IMPLEMENTED")
+    gateway_id = "!a2ebb954" if "peter" in msg.topic else raw_packet.get("gatewayId", "NOT IMPLEMENTED")
 
     if "type" in raw_packet:
       raw_packet["decoded"] = raw_packet.get("payload", {})
