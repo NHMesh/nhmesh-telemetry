@@ -303,7 +303,7 @@ def on_message(client, userdata, msg):
       print (raw_packet)
 
     packet_status = "dropped"
-    if not PACKET_ID_CACHE.contains(meshdash_packet["id"]):
+    if not PACKET_ID_CACHE.contains(meshdash_packet["id"]) or mesh_packet["app_packet_type"] == "Node Info":
       payload = json.dumps(meshdash_packet, default=str)
       topic = f"msh_parsed/{source}/{meshdash_packet['from']}"
       client.publish(topic, payload)
