@@ -6,6 +6,9 @@ services:
     env_file: telemetry.env
     environment:
       - ES_ENDPOINT=http://elasticsearch:9200
+    depends_on: # Modified
+      elasticsearch:
+        condition: service_healthy
     command: python /app/nhmesh-telemetry/collector.py
 
   producer:
@@ -20,7 +23,7 @@ services:
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      - xpack.security.enabled=false # Important for the simple healthcheck
       - bootstrap.memory_lock=true
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ulimits:
@@ -32,18 +35,24 @@ services:
     ports:
       - "9200:9200"
       - "9300:9300"
+    healthcheck: # Added
+      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12 # Try for 2 minutes (12 retries * 10s interval)
+      start_period: 30s # Grace period for Elasticsearch to start up
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.18.0
     container_name: kibana
-    depends_on:
-      - elasticsearch
+    depends_on: # Kibana can also wait for Elasticsearch to be healthy
+      elasticsearch:
+        condition: service_healthy
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - xpack.security.enabled=false
+      - xpack.security.enabled=false # Assuming consistent with ES
     ports:
       - "5601:5601"
 
 volumes:
   esdata:
-

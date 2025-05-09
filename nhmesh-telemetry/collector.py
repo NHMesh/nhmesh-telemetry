@@ -807,6 +807,7 @@ def run_bridge(args):
 
 
 if __name__ == "__main__":
+    time.sleep(10) # wait for ES
     # ARGS is already parsed globally
     logger.info(f"Starting Meshtastic MQTT to Elasticsearch Bridge v{SCRIPT_VERSION}...")
     logger.info(f"Config - MQTT: {ARGS.broker}:{ARGS.port}, Topic: {ARGS.sub_topic}")
