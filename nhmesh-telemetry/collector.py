@@ -170,7 +170,71 @@ def handle_producer_mqtt(raw_packet):
     logger.exception(f"An error occurred while parsing type 1: {e}")
     return None
 
+def handle_meshdash_node_info(raw_packet):
+  """
+  Handle the Mesh Dash Node Info packet.
+  Args:
+      raw_packet (dict): The raw packet data.
+  Returns:
+      dict: The parsed packet data.
+  """
+  try:
+    parsed_data = {
+      "from_id_num": raw_packet.get("node_id"),
+      "to_id_num": raw_packet.get("to"),
+      "portnum": "NODE_INFO",
+      "payload_raw": raw_packet,
+      "decoded": raw_packet.get("decoded", {}),
+      "telemetry_time": raw_packet.get("telemetry_time"),
+      "battery_level": raw_packet.get("batteryLevel"),
+      "voltage": raw_packet.get("voltage"),
+      "channel_utilization": raw_packet.get("channelUtilization"),
+      "air_util_tx": raw_packet.get("airUtilTx"),
+      "uptime_seconds": raw_packet.get("deviceMetrics", {}).get("upTimeSeconds"),
+      "packet_id": raw_packet.get("telemetry_time"), # time to deduplicate
+      "rx_time": raw_packet.get("telemetry_time"),
+      "hop_limit": raw_packet.get("hopLimit"),
+      "priority": raw_packet.get("priority"),
+      "from_id_str": raw_packet.get("node_id"),
+      "to_id_str": raw_packet.get("^all"),
+      "channel": None,  # Not present in this type
+      "hop_start": None,  # Not present in this type
+      "hops_away": None,  # Not directly present (related to hop_limit)
+      "rssi": raw_packet.get("rssi"),  # Not present in this type
+      "sender_id_str": raw_packet.get("node_id"),
+      "snr": raw_packet.get("snr"),
+      "timestamp": raw_packet.get("telemetry_time"),  # Using rxTime as timestamp
+      "type": "NODE_INFO",
+      "want_response": raw_packet.get("decoded", {}).get("wantResponse"),
+      "delay": raw_packet.get("delay"),
+      "next_hop": raw_packet.get("nextHop"),
+      "relay_node": raw_packet.get("relayNode"),
+      "tx_after": raw_packet.get("txAfter"),
+      "pki_encrypted": raw_packet.get("pkiEncrypted"),
+      "pdop": raw_packet.get("decoded", {}).get("position", {}).get("pdop"),
+      "altitude": raw_packet.get("position", {}).get("altitude"),
+      "latitude": raw_packet.get("position", {}).get("latitude"),
+      "longitude": raw_packet.get("longitude"),
+      "precision_bits": raw_packet.get("position", {}).get("precisionBits"),
+      "sats_in_view": raw_packet.get("position", {}).get("satsInView"),
+      "ground_speed": raw_packet.get("position", {}).get("groundSpeed"),
+      "ground_track": raw_packet.get("position", {}).get("groundTrack"),
+      "hardware": raw_packet.get("user", {}).get("hardware"),
+      "longname": raw_packet.get("user", {}).get("longName"),
+      "role": raw_packet.get("user", {}).get("role"),
+      "shortname": raw_packet.get("user", {}).get("shortName"),
+    }
 
+    parsed_data["geo"] = f"{parsed_data["latitude"]},{parsed_data["longitude"]}"
+
+    return parsed_data
+  except json.JSONDecodeError as e:
+    logger.exception(f"Error decoding JSON for type 1: {e}")
+    return None
+  except Exception as e:
+    logger.exception(f"An error occurred while parsing type 1: {e}")
+    return None
+  
 def handle_meshtastic_protobuf(raw_packet):
   binary_data = base64.b64decode(raw_packet)
   mesh_packet = mqtt_pb2.ServiceEnvelope()
@@ -277,7 +341,10 @@ def on_message(client, userdata, msg):
       raw_packet["decoded"] = raw_packet.get("payload", {})
       raw_packet["decoded"]["portnum"] = raw_packet.get("type")
 
-    parsed_packet = handle_producer_mqtt(raw_packet)
+    if "user" in raw_packet:
+      parsed_packet = handle_meshdash_node_info(raw_packet)
+    else:
+      parsed_packet = handle_producer_mqtt(raw_packet)
 
     # Prepare the document
     doc = {
