@@ -6,9 +6,6 @@ services:
     env_file: telemetry.env
     environment:
       - ES_ENDPOINT=http://elasticsearch:9200
-    depends_on: # Modified
-      elasticsearch:
-        condition: service_healthy
     command: python /app/nhmesh-telemetry/collector.py
 
   producer:
