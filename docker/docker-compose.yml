@@ -35,12 +35,6 @@ services:
     ports:
       - "9200:9200"
       - "9300:9300"
-    healthcheck: # Added
-      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 12 # Try for 2 minutes (12 retries * 10s interval)
-      start_period: 30s # Grace period for Elasticsearch to start up
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.18.0
