@@ -5,7 +5,7 @@ FROM python:3.13
 WORKDIR /app
 
 # Install the Python dependencies
-RUN pip install --no-cache-dir poetry
+RUN pip install poetry
 
 # Copy the application code into the container
 COPY . /app

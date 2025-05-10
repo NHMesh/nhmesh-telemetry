@@ -25,6 +25,7 @@ from google.protobuf import json_format, message as google_protobuf_message
 from elasticsearch import Elasticsearch, exceptions as es_exceptions
 import enum
 from collections import deque
+from prettytable import PrettyTable  # Install via `pip install prettytable`
 
 # --- Logging Configuration ---
 logging.basicConfig(
@@ -45,6 +46,65 @@ ES_INDEX_MESH_EVENTS = "mesh_events"
 SCRIPT_VERSION = "1.4.0" # Updated version
 DEFAULT_PACKET_PROCESSING_DELAY_SECONDS = 1.5 # Delay to wait for RF packet
 DEFAULT_PACKET_PROCESSING_INTERVAL_SECONDS = 0.5 # How often to check pending
+
+
+# --- Packet Statistics Tracker ---
+class PacketStatistics:
+    """Tracks and displays statistics about processed packets."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.packet_counts_by_type = {}
+        self.missing_fields_count = 0
+        self.total_packets = 0
+
+    def record_packet(self, packet_type, has_missing_fields):
+        """Records a packet's type and whether it has missing fields."""
+        with self.lock:
+            self.total_packets += 1
+            if packet_type not in self.packet_counts_by_type:
+                self.packet_counts_by_type[packet_type] = 0
+            self.packet_counts_by_type[packet_type] += 1
+            if has_missing_fields:
+                self.missing_fields_count += 1
+
+    def get_statistics(self):
+        """Returns a snapshot of the current statistics."""
+        with self.lock:
+            return {
+                "total_packets": self.total_packets,
+                "packet_counts_by_type": dict(self.packet_counts_by_type),
+                "missing_fields_count": self.missing_fields_count,
+            }
+
+    def reset(self):
+        """Resets the statistics."""
+        with self.lock:
+            self.packet_counts_by_type.clear()
+            self.missing_fields_count = 0
+            self.total_packets = 0
+
+
+# --- Global Packet Statistics Instance ---
+PACKET_STATS = PacketStatistics()
+
+
+# --- Statistics Display Thread ---
+def display_statistics():
+    """Periodically displays packet statistics in a pretty table."""
+    while True:
+        stats = PACKET_STATS.get_statistics()
+        table = PrettyTable()
+        table.field_names = ["Packet Type", "Count"]
+        for packet_type, count in stats["packet_counts_by_type"].items():
+            table.add_row([packet_type, count])
+        table.add_row(["Total Packets", stats["total_packets"]])
+        table.add_row(["Missing Fields", stats["missing_fields_count"]])
+        print("\nPacket Statistics:\n", table)
+        time.sleep(5)  # Display every 5 seconds
+
+# Start the statistics display thread
+stats_thread = threading.Thread(target=display_statistics, daemon=True)
+stats_thread.start()
 
 # --- Argument Parsing ---
 def parse_arguments():
@@ -659,6 +719,7 @@ def on_mqtt_connect(client, userdata, flags, rc):
         logger.error(f"Failed to connect to MQTT Broker, return code {rc}")
 
 
+# --- Update process_mqtt_message to record statistics ---
 def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
     """
     Processes a single incoming MQTT message.
@@ -713,6 +774,10 @@ def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
                        f"Topic: {msg.topic}, From: {parsed_packet_data.get('from_id_str', 'N/A')}")
         return
 
+    # --- Record statistics ---
+    packet_type = parsed_packet_data.get("portnum", "UNKNOWN")
+    has_missing_fields = any(value is None for key, value in parsed_packet_data.items())
+    PACKET_STATS.record_packet(packet_type, has_missing_fields)
 
     # --- Elasticsearch Indexing: Raw and Parsed (Happens Immediately) ---
     raw_doc_to_index = {
@@ -745,7 +810,6 @@ def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
     # --- Hand off to Delayed Packet Processor ---
     # The unique_packet_identifier (original packet.id) is the key for delay processing.
     delayed_processor.add_packet(unique_packet_identifier, meshdash_event, source_type, client, es_client_instance)
-
 
 def on_mqtt_message(client, userdata, msg):
     """Callback for when a PUBLISH message is received from the server."""
