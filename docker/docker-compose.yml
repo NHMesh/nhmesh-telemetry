@@ -4,6 +4,8 @@ services:
       context: ..
       dockerfile: docker/nhmesh-telemetry/Dockerfile
     env_file: telemetry.env
+    depends_on:
+      - elasticsearch
     environment:
       - ES_ENDPOINT=http://elasticsearch:9200
     command: python /app/nhmesh-telemetry/collector.py
@@ -37,8 +39,7 @@ services:
     image: docker.elastic.co/kibana/kibana:8.18.0
     container_name: kibana
     depends_on: # Kibana can also wait for Elasticsearch to be healthy
-      elasticsearch:
-        condition: service_healthy
+      - elasticsearch
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - xpack.security.enabled=false # Assuming consistent with ES
