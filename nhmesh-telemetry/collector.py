@@ -677,7 +677,8 @@ def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
     gateway_id = raw_packet_dict.get("gatewayId")
     if not gateway_id:
         if "peter" in msg.topic: gateway_id = "!a2ebb954" # Example specific rule
-        else: gateway_id = f"local_rf_{ARGS.broker}" if source_type == "rf" else DEFAULT_GATEWAY_ID_FALLBACK
+        else: 
+            gateway_id = f"local_rf_{ARGS.broker}" if source_type == "rf" else gateway_id = msg.topic.split("/")[-1]
     
     current_node_id = None # Potentially to identify this specific instance if it's an RF gateway
 
