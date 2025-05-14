@@ -8,6 +8,7 @@ import meshtastic.tcp_interface
 from pubsub import pub
 import argparse
 from utils.envdefault import EnvDefault
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,7 +35,6 @@ class MeshtasticMQTTHandler:
     def __init__(self, broker, port, topic, tls, username, password, node_ip):
         """
         Initializes the MeshtasticMQTTHandler.
-
         """
         self.broker = broker
         self.port = port
@@ -43,23 +43,59 @@ class MeshtasticMQTTHandler:
         self.username = username
         self.password = password
         self.node_ip = node_ip
+        self.max_reconnect_attempts = 5
+        self.reconnect_delay = 5  # seconds
         
         self.mqtt_client = mqtt.Client()
         self.mqtt_client.username_pw_set(username=self.username, password=self.password)
-                
-        self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self.node_ip) 
-        self.node_info = self.interface.getMyNodeInfo()
-        self.connected_node_id = self.node_info["user"]["id"]
+        
+        try:
+            self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self.node_ip)
+            self.node_info = self.interface.getMyNodeInfo()
+            self.connected_node_id = self.node_info["user"]["id"]
+        except Exception as e:
+            logging.error(f"Failed to setup Meshtastic interface: {e}")
+            raise
 
         pub.subscribe(self.onReceive, "meshtastic.receive")
 
     def connect(self):
         """
         Connects to the MQTT broker and starts the MQTT loop.
-
+        Includes reconnection logic for both MQTT and Meshtastic.
         """
-        self.mqtt_client.connect(self.broker, self.port, 60)
-        self.mqtt_client.loop_forever()
+        reconnect_attempts = 0
+        
+        while reconnect_attempts < self.max_reconnect_attempts:
+            try:
+                self.mqtt_client.connect(self.broker, self.port, 60)
+                self.mqtt_client.loop_forever()
+            except (BrokenPipeError, ConnectionError) as e:
+                logging.error(f"Connection error: {e}")
+                reconnect_attempts += 1
+                
+                if reconnect_attempts < self.max_reconnect_attempts:
+                    logging.info(f"Attempting to reconnect in {self.reconnect_delay} seconds... (Attempt {reconnect_attempts}/{self.max_reconnect_attempts})")
+                    time.sleep(self.reconnect_delay)
+                    try:
+                        self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self.node_ip)
+                        self.node_info = self.interface.getMyNodeInfo()
+                        self.connected_node_id = self.node_info["user"]["id"]
+                    except Exception as e:
+                        logging.error(f"Failed to reconnect to Meshtastic: {e}")
+                        continue
+                else:
+                    logging.error("Max reconnection attempts reached. Exiting...")
+                    raise
+            except KeyboardInterrupt:
+                self.interface.close()
+                self.mqtt_client.disconnect()
+                self.mqtt_client.loop_stop()
+                print("Exiting...")
+                sys.exit(0)
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
+                raise
         
     def onReceive(self, packet, interface): # called when a packet arrives
         """
@@ -85,10 +121,9 @@ class MeshtasticMQTTHandler:
             payload (dict): The dictionary payload to publish.
         """
         
-        topic_node = f"{self.topic}/{payload["fromId"]}"
+        topic_node = f"{self.topic}/{payload['fromId']}"
         payload = json.dumps(payload, default=str)
         
-
         # Publish the JSON payload to the specified topic
         self.mqtt_client.publish(topic_node, payload)
 
@@ -106,12 +141,9 @@ if __name__ == "__main__":
     parser.add_argument('--node-ip', action=EnvDefault, envvar="NODE_IP", help='Node IP address')
     args = parser.parse_args()
 
-
-    client = MeshtasticMQTTHandler(args.broker, args.port, args.topic, args.tls, args.username, args.password, args.node_ip)
     try:
+        client = MeshtasticMQTTHandler(args.broker, args.port, args.topic, args.tls, args.username, args.password, args.node_ip)
         client.connect()
-    except KeyboardInterrupt:
-        client.interface.close()
-        client.mqtt_client.disconnect()
-        client.mqtt_client.loop_stop()
-        print("Exiting...")
+    except Exception as e:
+        logging.error(f"Fatal error: {e}")
+        sys.exit(1)
