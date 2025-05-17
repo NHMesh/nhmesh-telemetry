@@ -9,6 +9,7 @@ from pubsub import pub
 import argparse
 from utils.envdefault import EnvDefault
 import time
+import threading
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +60,87 @@ class MeshtasticMQTTHandler:
 
         pub.subscribe(self.onReceive, "meshtastic.receive")
 
+        # --- Traceroute Daemon Feature ---
+        self._node_cache = {}  # node_id -> {"position": (lat, lon, alt), "long_name": str}
+        self._tracerouted_nodes = set()
+        self._last_traceroute_time = {}
+        self._TRACEROUTE_INTERVAL = 3 * 60 * 60  # 3 hours
+        self._traceroute_lock = threading.Lock()
+        self._traceroute_active_lock = threading.Lock()
+        threading.Thread(target=self._traceroute_daemon, daemon=True).start()
+
+    def _format_position(self, pos):
+        if pos is None:
+            return "UNKNOWN"
+        lat, lon, alt = pos
+        s = f"({lat:.7f}, {lon:.7f})"
+        if alt is not None:
+            s += f" {alt}m"
+        return s
+
+    def _update_cache_from_packet(self, packet):
+        node_id = packet.get("from")
+        if node_id is None:
+            return
+        entry = self._node_cache.setdefault(node_id, {"position": None, "long_name": None})
+        decoded = packet.get("decoded", {})
+        if decoded.get("portnum") == "POSITION_APP":
+            payload = decoded.get("payload")
+            try:
+                from meshtastic.protobuf import mesh_pb2
+                pos = mesh_pb2.Position()
+                pos.ParseFromString(payload)
+                if pos.latitude_i != 0 and pos.longitude_i != 0:
+                    lat = pos.latitude_i * 1e-7
+                    lon = pos.longitude_i * 1e-7
+                    alt = pos.altitude if pos.altitude != 0 else None
+                    entry["position"] = (lat, lon, alt)
+                else:
+                    entry["position"] = None
+            except Exception as e:
+                logging.warning(f"Error parsing position: {e}")
+        if decoded.get("portnum") == "USER_APP":
+            payload = decoded.get("payload")
+            try:
+                from meshtastic.protobuf import mesh_pb2
+                user = mesh_pb2.User()
+                user.ParseFromString(payload)
+                if user.long_name:
+                    entry["long_name"] = user.long_name
+            except Exception as e:
+                logging.warning(f"Error parsing user: {e}")
+        # Try to update from interface nodes DB if available
+        if hasattr(self.interface, "nodes") and node_id in self.interface.nodes:
+            user = self.interface.nodes[node_id].get("user", {})
+            if user:
+                entry["long_name"] = user.get("longName") or entry["long_name"]
+
+    def _traceroute_worker(self, node_id):
+        with self._traceroute_active_lock:
+            entry = self._node_cache.get(node_id, {})
+            long_name = entry.get("long_name")
+            pos = entry.get("position")
+            logging.info(f"[Traceroute] Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)}")
+            self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
+            with self._traceroute_lock:
+                self._last_traceroute_time[node_id] = time.time()
+
+    def _traceroute_daemon(self):
+        while True:
+            now = time.time()
+            # Traceroute new nodes
+            for node_id in list(self._node_cache.keys()):
+                if node_id not in self._tracerouted_nodes:
+                    self._tracerouted_nodes.add(node_id)
+                    threading.Thread(target=self._traceroute_worker, args=(node_id,), daemon=True).start()
+            # Periodic re-traceroute
+            for node_id in list(self._node_cache.keys()):
+                last_time = self._last_traceroute_time.get(node_id, 0)
+                if now - last_time > self._TRACEROUTE_INTERVAL:
+                    logging.info(f"[Periodic] Re-tracerouting node {node_id} (last at {time.ctime(last_time)})")
+                    threading.Thread(target=self._traceroute_worker, args=(node_id,), daemon=True).start()
+            time.sleep(300)  # Check every 5 minutes
+
     def connect(self):
         """
         Connects to the MQTT broker and starts the MQTT loop.
@@ -103,7 +185,7 @@ class MeshtasticMQTTHandler:
         Args:
             packet (dict): The received packet data.
         """
-
+        self._update_cache_from_packet(packet)
         logging.info("Packet Received!")
         packet_dict = {}
         for field_descriptor, field_value in packet.items():
