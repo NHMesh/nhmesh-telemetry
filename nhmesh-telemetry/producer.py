@@ -115,15 +115,28 @@ class MeshtasticMQTTHandler:
             if user:
                 entry["long_name"] = user.get("longName") or entry["long_name"]
 
+    def _run_traceroute(self, node_id):
+        entry = self._node_cache.get(node_id, {})
+        long_name = entry.get("long_name")
+        pos = entry.get("position")
+        logging.info(f"[Traceroute] Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)}")
+        self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
+        with self._traceroute_lock:
+            self._last_traceroute_time[node_id] = time.time()
+
     def _traceroute_worker(self, node_id):
-        with self._traceroute_active_lock:
-            entry = self._node_cache.get(node_id, {})
-            long_name = entry.get("long_name")
-            pos = entry.get("position")
-            logging.info(f"[Traceroute] Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)}")
-            self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
-            with self._traceroute_lock:
-                self._last_traceroute_time[node_id] = time.time()
+        acquired = self._traceroute_active_lock.acquire(timeout=60)
+        if not acquired:
+            logging.warning(f"[Traceroute] Timeout waiting for traceroute lock for node {node_id}, skipping.")
+            return
+        try:
+            traceroute_thread = threading.Thread(target=self._run_traceroute, args=(node_id,))
+            traceroute_thread.start()
+            traceroute_thread.join(timeout=60)
+            if traceroute_thread.is_alive():
+                logging.warning(f"[Traceroute] Traceroute to node {node_id} did not complete in 60 seconds, moving on.")
+        finally:
+            self._traceroute_active_lock.release()
 
     def _traceroute_daemon(self):
         while True:
