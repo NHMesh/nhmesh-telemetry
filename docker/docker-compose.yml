@@ -3,34 +3,41 @@ services:
     build:
       context: ..
       dockerfile: docker/nhmesh-telemetry/Dockerfile
-    env_file: telemetry.env
+    environment:
+      - MQTT_USERNAME=${MQTT_USERNAME}
+      - MQTT_TOPIC=${MQTT_TOPIC}
+      - MQTT_PASSWORD=${MQTT_PASSWORD}
+      - ES_PASSWORD=${TELEMETRY_ES_PASSWORD}
+      - ES_USERNAME=${TELEMETRY_ES_USERNAME}
+      - ES_ENDPOINT=http://elasticsearch:9200
     depends_on:
       - elasticsearch
-    environment:
-      - ES_ENDPOINT=http://elasticsearch:9200
     command: python /app/nhmesh-telemetry/collector.py
 
   producer:
     build:
       context: ..
       dockerfile: docker/nhmesh-telemetry/Dockerfile
-    env_file: telemetry.env
+    environment:
+      - MQTT_USERNAME=${MQTT_USERNAME}
+      - MQTT_TOPIC=${MQTT_TOPIC}
+      - MQTT_PASSWORD=${MQTT_PASSWORD}
+      - NODE_IP=${NODE_IP}
     command: python /app/nhmesh-telemetry/producer.py
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.18.0
     container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false # Important for the simple healthcheck
-      - bootstrap.memory_lock=true
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ulimits:
       memlock:
         soft: -1
         hard: -1
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
     volumes:
       - esdata:/usr/share/elasticsearch/data
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ~/backups/esdata/:/usr/share/elasticsearch/backups
     ports:
       - "9200:9200"
       - "9300:9300"
@@ -41,8 +48,10 @@ services:
     depends_on: # Kibana can also wait for Elasticsearch to be healthy
       - elasticsearch
     environment:
+      - xpack.security.enabled=true
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - xpack.security.enabled=false # Assuming consistent with ES
+      - ELASTICSEARCH_USERNAME=${KIBANA_ES_USERNAME}
+      - ELASTICSEARCH_PASSWORD=${KIBANA_ES_PASSWORD}
     ports:
       - "5601:5601"
 

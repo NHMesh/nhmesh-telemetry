@@ -153,6 +153,18 @@ def parse_arguments():
         help="Elasticsearch Endpoint (e.g., http://localhost:9200)",
     )
     parser.add_argument(
+        "--es-username",
+        action=EnvDefault,
+        envvar="ES_USERNAME",
+        help="Elasticsearch username",
+    )
+    parser.add_argument(
+        "--es-password",
+        action=EnvDefault,
+        envvar="ES_PASSWORD",
+        help="Elasticsearch password",
+    )
+    parser.add_argument(
         "--processing-delay",
         type=float,
         default=DEFAULT_PACKET_PROCESSING_DELAY_SECONDS,
@@ -432,18 +444,29 @@ def safe_payload_decode(payload_bytes):
         logger.error(f"Unexpected error during payload decoding: {e}")
         return ""
 
-def get_elasticsearch_client(es_endpoint_url):
+def get_elasticsearch_client(es_endpoint_url, es_username=None, es_password=None):
     """Creates and returns an Elasticsearch client instance."""
     try:
         if not es_endpoint_url.startswith(("http://", "https://")):
             logger.warning(f"ES endpoint '{es_endpoint_url}' no scheme, prepending 'http://'.")
             es_endpoint_url = f"http://{es_endpoint_url}"
-        es_client = Elasticsearch([es_endpoint_url], timeout=10, max_retries=3, retry_on_timeout=True)
+
+        auth = (es_username, es_password) if es_username and es_password else None
+        es_client = Elasticsearch(
+            [es_endpoint_url],
+            basic_auth=auth,
+            request_timeout=10,
+            max_retries=3,
+            retry_on_timeout=True
+        )
+
         if not es_client.ping():
             logger.error(f"Failed to connect to Elasticsearch at {es_endpoint_url}")
             return None
         logger.info(f"Successfully connected to Elasticsearch at {es_endpoint_url}")
         return es_client
+    except es_exceptions.AuthenticationException as e:
+        logger.error(f"Authentication failed for Elasticsearch: {e}")
     except es_exceptions.ConnectionError as e:
         logger.error(f"Elasticsearch connection error for {es_endpoint_url}: {e}")
     except Exception as e:
@@ -843,7 +866,11 @@ def on_mqtt_message(client, userdata, msg):
 
 def run_bridge(args):
     """Sets up MQTT client, delayed processor, and starts the main loop."""
-    es_client = get_elasticsearch_client(args.es_endpoint)
+    es_client = get_elasticsearch_client(
+        args.es_endpoint,
+        es_username=args.es_username,
+        es_password=args.es_password
+    )
     if not es_client:
         logger.critical("Exiting due to Elasticsearch connection failure.")
         sys.exit(1)
@@ -895,7 +922,6 @@ def run_bridge(args):
 
 
 if __name__ == "__main__":
-    time.sleep(60) # wait for ES
     # ARGS is already parsed globally
     logger.info(f"Starting Meshtastic MQTT to Elasticsearch Bridge v{SCRIPT_VERSION}...")
     logger.info(f"Config - MQTT: {ARGS.broker}:{ARGS.port}, Topic: {ARGS.sub_topic}")
