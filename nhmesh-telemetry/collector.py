@@ -454,8 +454,8 @@ def get_elasticsearch_client(es_endpoint_url, es_username=None, es_password=None
         auth = (es_username, es_password) if es_username and es_password else None
         es_client = Elasticsearch(
             [es_endpoint_url],
-            http_auth=auth,
-            timeout=10,
+            basic_auth=auth,
+            request_timeout=10,
             max_retries=3,
             retry_on_timeout=True
         )
@@ -922,7 +922,6 @@ def run_bridge(args):
 
 
 if __name__ == "__main__":
-    time.sleep(60) # wait for ES
     # ARGS is already parsed globally
     logger.info(f"Starting Meshtastic MQTT to Elasticsearch Bridge v{SCRIPT_VERSION}...")
     logger.info(f"Config - MQTT: {ARGS.broker}:{ARGS.port}, Topic: {ARGS.sub_topic}")
