@@ -629,11 +629,10 @@ def parse_standard_meshtastic_packet(raw_packet_dict):
             except UnicodeDecodeError: logger.warning("UTF-8 decode failed for TEXT_MESSAGE_APP payload_bytes")
         # Add route information for traceroute packets
         if decoded_part.get("portnum") == "TRACEROUTE_APP":
-            route_discovery = decoded_part.get("routeDiscovery", {})
-            parsed_data["route"] = route_discovery.get("route", [])
-            parsed_data["snr_towards"] = route_discovery.get("snrTowards", [])
-            parsed_data["route_back"] = route_discovery.get("routeBack", [])
-            parsed_data["snr_back"] = route_discovery.get("snrBack", [])
+            parsed_data["route"] = decoded_part.get("route", [])
+            parsed_data["snr_towards"] = decoded_part.get("snrTowards", [])
+            parsed_data["route_back"] = decoded_part.get("routeBack", [])
+            parsed_data["snr_back"] = decoded_part.get("snrBack", [])
         return parsed_data
     except Exception as e:
         logger.exception(f"Error parsing standard packet: {e} - Pkt: {str(raw_packet_dict)[:200]}")
@@ -864,7 +863,8 @@ def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
 
     # --- Hand off to Delayed Packet Processor ---
     # The unique_packet_identifier (original packet.id) is the key for delay processing.
-    delayed_processor.add_packet(unique_packet_identifier, meshdash_event, source_type, client, es_client_instance)
+    if meshdash_event.get("app_packet_type") != "Unknown":
+        delayed_processor.add_packet(unique_packet_identifier, meshdash_event, source_type, client, es_client_instance)
 
 def on_mqtt_message(client, userdata, msg):
     """Callback for when a PUBLISH message is received from the server."""
