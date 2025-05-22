@@ -860,11 +860,11 @@ def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
 
     if meshdash_event.get("app_packet_type") == PacketAppType.UNKNOWN_APP.value:
         logger.warning(f"UNIMPLEMENTED app_packet_type for {unique_packet_identifier}. Portnum: {parsed_packet_data.get('portnum')}")
+        return
 
     # --- Hand off to Delayed Packet Processor ---
     # The unique_packet_identifier (original packet.id) is the key for delay processing.
-    if meshdash_event.get("app_packet_type") != "Unknown":
-        delayed_processor.add_packet(unique_packet_identifier, meshdash_event, source_type, client, es_client_instance)
+    delayed_processor.add_packet(unique_packet_identifier, meshdash_event, source_type, client, es_client_instance)
 
 def on_mqtt_message(client, userdata, msg):
     """Callback for when a PUBLISH message is received from the server."""
