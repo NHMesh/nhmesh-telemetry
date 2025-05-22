@@ -627,6 +627,13 @@ def parse_standard_meshtastic_packet(raw_packet_dict):
                 parsed_data["decoded_content"]["text"] = decoded_part["payload_bytes_for_text"].decode('utf-8')
                 parsed_data["payload_raw"] = parsed_data["decoded_content"]["text"]
             except UnicodeDecodeError: logger.warning("UTF-8 decode failed for TEXT_MESSAGE_APP payload_bytes")
+        # Add route information for traceroute packets
+        if decoded_part.get("portnum") == "TRACEROUTE_APP":
+            route_discovery = decoded_part.get("routeDiscovery", {})
+            parsed_data["route"] = route_discovery.get("route", [])
+            parsed_data["snr_towards"] = route_discovery.get("snrTowards", [])
+            parsed_data["route_back"] = route_discovery.get("routeBack", [])
+            parsed_data["snr_back"] = route_discovery.get("snrBack", [])
         return parsed_data
     except Exception as e:
         logger.exception(f"Error parsing standard packet: {e} - Pkt: {str(raw_packet_dict)[:200]}")
@@ -734,6 +741,7 @@ def create_meshdash_event(parsed_packet_data):
         "user_short_name": parsed_packet_data.get("user_short_name"),
         "user_hw_model": parsed_packet_data.get("user_hardware_model_id")
     }
+
     # If text message and text is already decoded in 'decoded_content.text' by parser
     if app_type_enum == PacketAppType.TEXT_MESSAGE_APP and "text" in meshdash_event["decoded"]:
         pass # Text already handled by parsers
@@ -743,6 +751,14 @@ def create_meshdash_event(parsed_packet_data):
             meshdash_event["decoded"]["text"] = decoded_text
         except Exception:
             logger.debug(f"Could not decode raw_payload for text in meshdash_event: {meshdash_event['raw_payload'][:50]}")
+
+    # Add route information for traceroute packets
+    if app_type_enum == PacketAppType.TRACEROUTE_APP:
+        meshdash_event["route"] = parsed_packet_data.get("route", [])
+        meshdash_event["snr_towards"] = parsed_packet_data.get("snr_towards", [])
+        meshdash_event["route_back"] = parsed_packet_data.get("route_back", [])
+        meshdash_event["snr_back"] = parsed_packet_data.get("snr_back", [])
+
     return meshdash_event
 # --- End of placeholder ---
 

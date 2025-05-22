@@ -109,6 +109,19 @@ class MeshtasticMQTTHandler:
                     entry["long_name"] = user.long_name
             except Exception as e:
                 logging.warning(f"Error parsing user: {e}")
+        if decoded.get("portnum") == "TRACEROUTE_APP":
+            payload = decoded.get("payload")
+            try:
+                from meshtastic.protobuf import mesh_pb2
+                route = mesh_pb2.RouteDiscovery()
+                route.ParseFromString(payload)
+                # Add route information to the packet for MQTT publishing
+                packet["route"] = list(route.route)
+                packet["snr_towards"] = list(route.snr_towards)
+                packet["route_back"] = list(route.route_back)
+                packet["snr_back"] = list(route.snr_back)
+            except Exception as e:
+                logging.warning(f"Error parsing traceroute: {e}")
         # Try to update from interface nodes DB if available
         if hasattr(self.interface, "nodes") and node_id in self.interface.nodes:
             user = self.interface.nodes[node_id].get("user", {})
