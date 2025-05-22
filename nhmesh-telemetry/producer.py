@@ -84,44 +84,68 @@ class MeshtasticMQTTHandler:
             return
         entry = self._node_cache.setdefault(node_id, {"position": None, "long_name": None})
         decoded = packet.get("decoded", {})
+        # Helper to get bytes from payload
+        def get_payload_bytes(payload):
+            if isinstance(payload, bytes):
+                return payload
+            elif isinstance(payload, str):
+                import base64
+                try:
+                    return base64.b64decode(payload)
+                except Exception:
+                    return None
+            else:
+                return None
+        # POSITION_APP
         if decoded.get("portnum") == "POSITION_APP":
             payload = decoded.get("payload")
-            try:
-                from meshtastic.protobuf import mesh_pb2
-                pos = mesh_pb2.Position()
-                pos.ParseFromString(payload)
-                if pos.latitude_i != 0 and pos.longitude_i != 0:
-                    lat = pos.latitude_i * 1e-7
-                    lon = pos.longitude_i * 1e-7
-                    alt = pos.altitude if pos.altitude != 0 else None
-                    entry["position"] = (lat, lon, alt)
-                else:
-                    entry["position"] = None
-            except Exception as e:
-                logging.warning(f"Error parsing position: {e}")
+            if not isinstance(payload, dict):
+                payload_bytes = get_payload_bytes(payload)
+                if payload_bytes:
+                    try:
+                        from meshtastic.protobuf import mesh_pb2
+                        pos = mesh_pb2.Position()
+                        pos.ParseFromString(payload_bytes)
+                        if pos.latitude_i != 0 and pos.longitude_i != 0:
+                            lat = pos.latitude_i * 1e-7
+                            lon = pos.longitude_i * 1e-7
+                            alt = pos.altitude if pos.altitude != 0 else None
+                            entry["position"] = (lat, lon, alt)
+                        else:
+                            entry["position"] = None
+                    except Exception as e:
+                        logging.warning(f"Error parsing position: {e}")
+        # USER_APP
         if decoded.get("portnum") == "USER_APP":
             payload = decoded.get("payload")
-            try:
-                from meshtastic.protobuf import mesh_pb2
-                user = mesh_pb2.User()
-                user.ParseFromString(payload)
-                if user.long_name:
-                    entry["long_name"] = user.long_name
-            except Exception as e:
-                logging.warning(f"Error parsing user: {e}")
+            if not isinstance(payload, dict):
+                payload_bytes = get_payload_bytes(payload)
+                if payload_bytes:
+                    try:
+                        from meshtastic.protobuf import mesh_pb2
+                        user = mesh_pb2.User()
+                        user.ParseFromString(payload_bytes)
+                        if user.long_name:
+                            entry["long_name"] = user.long_name
+                    except Exception as e:
+                        logging.warning(f"Error parsing user: {e}")
+        # TRACEROUTE_APP
         if decoded.get("portnum") == "TRACEROUTE_APP":
             payload = decoded.get("payload")
-            try:
-                from meshtastic.protobuf import mesh_pb2
-                route = mesh_pb2.RouteDiscovery()
-                route.ParseFromString(payload)
-                # Add route information to the packet for MQTT publishing
-                packet["route"] = list(route.route)
-                packet["snr_towards"] = list(route.snr_towards)
-                packet["route_back"] = list(route.route_back)
-                packet["snr_back"] = list(route.snr_back)
-            except Exception as e:
-                logging.warning(f"Error parsing traceroute: {e}")
+            if not isinstance(payload, dict):
+                payload_bytes = get_payload_bytes(payload)
+                if payload_bytes:
+                    try:
+                        from meshtastic.protobuf import mesh_pb2
+                        route = mesh_pb2.RouteDiscovery()
+                        route.ParseFromString(payload_bytes)
+                        # Add route information to the packet for MQTT publishing
+                        packet["route"] = list(route.route)
+                        packet["snr_towards"] = list(route.snr_towards)
+                        packet["route_back"] = list(route.route_back)
+                        packet["snr_back"] = list(route.snr_back)
+                    except Exception as e:
+                        logging.warning(f"Error parsing traceroute: {e}")
         # Try to update from interface nodes DB if available
         if hasattr(self.interface, "nodes") and node_id in self.interface.nodes:
             user = self.interface.nodes[node_id].get("user", {})
@@ -209,17 +233,56 @@ class MeshtasticMQTTHandler:
         """
         Handles incoming Meshtastic packets.
         Args:
-            packet (dict): The received packet data.
+            packet (bytes|dict|str): The received packet data (could be bytes, JSON string, or dict).
         """
-        self._update_cache_from_packet(packet)
+        import json
+        from meshtastic.protobuf import mesh_pb2
+        import base64
+        # Try to decode packet as JSON first
+        packet_dict = None
+        if isinstance(packet, dict):
+            packet_dict = packet
+        elif isinstance(packet, bytes):
+            try:
+                packet_dict = json.loads(packet.decode('utf-8'))
+            except Exception:
+                # Not JSON, try protobuf
+                try:
+                    mesh_packet = mesh_pb2.MeshPacket()
+                    mesh_packet.ParseFromString(packet)
+                    # Convert protobuf to dict
+                    from google.protobuf import json_format
+                    packet_dict = json_format.MessageToDict(mesh_packet, preserving_proto_field_name=True)
+                except Exception as e:
+                    logging.error(f"Failed to decode packet as protobuf: {e}")
+                    return
+        elif isinstance(packet, str):
+            try:
+                packet_dict = json.loads(packet)
+            except Exception:
+                # Not JSON, try base64 decode then protobuf
+                try:
+                    packet_bytes = base64.b64decode(packet)
+                    mesh_packet = mesh_pb2.MeshPacket()
+                    mesh_packet.ParseFromString(packet_bytes)
+                    from google.protobuf import json_format
+                    packet_dict = json_format.MessageToDict(mesh_packet, preserving_proto_field_name=True)
+                except Exception as e:
+                    logging.error(f"Failed to decode packet string as protobuf: {e}")
+                    return
+        else:
+            logging.error(f"Unknown packet type: {type(packet)}")
+            return
+
+        self._update_cache_from_packet(packet_dict)
         logging.info("Packet Received!")
-        packet_dict = {}
-        for field_descriptor, field_value in packet.items():
-            packet_dict[field_descriptor] = field_value
+        out_packet = {}
+        for field_descriptor, field_value in packet_dict.items():
+            out_packet[field_descriptor] = field_value
 
-        packet_dict["gatewayId"] = self.connected_node_id
+        out_packet["gatewayId"] = self.connected_node_id
 
-        self.publish_dict_to_mqtt(packet_dict)
+        self.publish_dict_to_mqtt(out_packet)
     
     def publish_dict_to_mqtt(self, payload):
         """
