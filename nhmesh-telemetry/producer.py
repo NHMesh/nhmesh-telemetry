@@ -243,6 +243,7 @@ class MeshtasticMQTTHandler:
         if isinstance(packet, dict):
             packet_dict = packet
         elif isinstance(packet, bytes):
+            print ("BYTES!")
             try:
                 packet_dict = json.loads(packet.decode('utf-8'))
             except Exception:
