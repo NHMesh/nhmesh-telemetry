@@ -10,6 +10,7 @@ import argparse
 from utils.envdefault import EnvDefault
 import time
 import threading
+import queue
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,12 +63,12 @@ class MeshtasticMQTTHandler:
 
         # --- Traceroute Daemon Feature ---
         self._node_cache = {}  # node_id -> {"position": (lat, lon, alt), "long_name": str}
-        self._tracerouted_nodes = set()
         self._last_traceroute_time = {}
         self._TRACEROUTE_INTERVAL = 3 * 60 * 60  # 3 hours
-        self._traceroute_lock = threading.Lock()
-        self._traceroute_active_lock = threading.Lock()
-        threading.Thread(target=self._traceroute_daemon, daemon=True).start()
+        self._traceroute_queue = queue.Queue()
+        self._traceroute_worker_thread = threading.Thread(target=self._traceroute_worker, daemon=True)
+        self._traceroute_worker_thread.start()
+        logging.info("Traceroute worker thread started.")
 
     def _format_position(self, pos):
         if pos is None:
@@ -82,6 +83,7 @@ class MeshtasticMQTTHandler:
         node_id = packet.get("from")
         if node_id is None:
             return
+        is_new_node = node_id not in self._node_cache
         entry = self._node_cache.setdefault(node_id, {"position": None, "long_name": None})
         decoded = packet.get("decoded", {})
         # Helper to get bytes from payload
@@ -151,45 +153,68 @@ class MeshtasticMQTTHandler:
             user = self.interface.nodes[node_id].get("user", {})
             if user:
                 entry["long_name"] = user.get("longName") or entry["long_name"]
+        # Enqueue traceroute for new nodes
+        if is_new_node:
+            logging.info(f"[Traceroute] New node discovered: {node_id}, enqueuing traceroute job.")
+            self._traceroute_queue.put((node_id, 0))  # 0 retries so far
+        # Periodic re-traceroute
+        now = time.time()
+        last_time = self._last_traceroute_time.get(node_id, 0)
+        if now - last_time > self._TRACEROUTE_INTERVAL:
+            logging.info(f"[Traceroute] Periodic traceroute needed for node {node_id}, enqueuing job.")
+            self._traceroute_queue.put((node_id, 0))
 
     def _run_traceroute(self, node_id):
         entry = self._node_cache.get(node_id, {})
         long_name = entry.get("long_name")
         pos = entry.get("position")
-        logging.info(f"[Traceroute] Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)}")
-        self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
-        with self._traceroute_lock:
-            self._last_traceroute_time[node_id] = time.time()
-
-    def _traceroute_worker(self, node_id):
-        acquired = self._traceroute_active_lock.acquire(timeout=60)
-        if not acquired:
-            logging.warning(f"[Traceroute] Timeout waiting for traceroute lock for node {node_id}, skipping.")
-            return
+        logging.info(f"[Traceroute] Running traceroute for Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)}")
         try:
-            traceroute_thread = threading.Thread(target=self._run_traceroute, args=(node_id,))
-            traceroute_thread.start()
-            traceroute_thread.join(timeout=60)
-            if traceroute_thread.is_alive():
-                logging.warning(f"[Traceroute] Traceroute to node {node_id} did not complete in 60 seconds, moving on.")
-        finally:
-            self._traceroute_active_lock.release()
+            # Log node info before traceroute
+            try:
+                info = self.interface.getMyNodeInfo()
+                logging.info(f"[Traceroute] Node info before traceroute: {info}")
+            except Exception as e:
+                logging.error(f"[Traceroute] Failed to get node info before traceroute: {e}")
+            # Pre traceroute log
+            logging.info(f"[Traceroute] About to send traceroute to {node_id}")
+            # Timeout wrapper for sendTraceRoute
+            result = [None]
+            def target():
+                try:
+                    self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
+                    result[0] = True
+                except Exception as e:
+                    result[0] = e
+            t = threading.Thread(target=target)
+            t.start()
+            t.join(timeout=1)  # 10 second timeout
+            if t.is_alive():
+                logging.error(f"[Traceroute] sendTraceRoute to node {node_id} timed out!")
+                return False
+            if result[0] is True:
+                self._last_traceroute_time[node_id] = time.time()
+                logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
+                return True
+            else:
+                logging.error(f"[Traceroute] Error sending traceroute to node {node_id}: {result[0]}")
+                return False
+        except Exception as e:
+            logging.error(f"[Traceroute] Unexpected error sending traceroute to node {node_id}: {e}")
+            return False
 
-    def _traceroute_daemon(self):
+    def _traceroute_worker(self):
         while True:
-            now = time.time()
-            # Traceroute new nodes
-            for node_id in list(self._node_cache.keys()):
-                if node_id not in self._tracerouted_nodes:
-                    self._tracerouted_nodes.add(node_id)
-                    threading.Thread(target=self._traceroute_worker, args=(node_id,), daemon=True).start()
-            # Periodic re-traceroute
-            for node_id in list(self._node_cache.keys()):
-                last_time = self._last_traceroute_time.get(node_id, 0)
-                if now - last_time > self._TRACEROUTE_INTERVAL:
-                    logging.info(f"[Periodic] Re-tracerouting node {node_id} (last at {time.ctime(last_time)})")
-                    threading.Thread(target=self._traceroute_worker, args=(node_id,), daemon=True).start()
-            time.sleep(300)  # Check every 5 minutes
+            try:
+                node_id, retries = self._traceroute_queue.get()
+                logging.info(f"[Traceroute] Worker picked up job for node {node_id}, attempt {retries+1}.")
+                success = self._run_traceroute(node_id)
+                if not success:
+                    logging.error(f"[Traceroute] Failed to traceroute node {node_id} after {retries+1} attempts.")
+                else:
+                    logging.info(f"[Traceroute] Traceroute for node {node_id} completed or sent.")
+            except Exception as e:
+                logging.error(f"[Traceroute] Worker encountered error: {e}")
 
     def connect(self):
         """
