@@ -786,7 +786,7 @@ def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
         logger.error("Failed to deserialize MQTT payload, skipping message.")
         return
 
-    is_relayed_via_mqtt = "gatewayId" in raw_packet_dict and raw_packet_dict["gatewayId"] is not None and raw_packet_dict.get("source", "mqtt") != "rf"
+    is_relayed_via_mqtt = "gatewayId" in raw_packet_dict and raw_packet_dict["gatewayId"] is not None and not raw_packet_dict.get("source", "") == "rf"
     source_type = "mqtt" if is_relayed_via_mqtt else "rf"
 
     gateway_id = raw_packet_dict.get("gatewayId")
