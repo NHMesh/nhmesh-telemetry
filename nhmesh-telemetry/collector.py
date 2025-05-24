@@ -43,8 +43,8 @@ DEFAULT_ES_ENDPOINT = "large4cats"
 DEFAULT_GATEWAY_ID_FALLBACK = "NOT_IMPLEMENTED"
 ES_INDEX_RAW_PACKETS = "mesh_packets_raw"
 ES_INDEX_MESH_EVENTS = "mesh_events"
-SCRIPT_VERSION = "1.4.0" # Updated version
-DEFAULT_PACKET_PROCESSING_DELAY_SECONDS = 1.5 # Delay to wait for RF packet
+SCRIPT_VERSION = "1.5.0" # Updated version
+DEFAULT_PACKET_PROCESSING_DELAY_SECONDS = 5.0 # Delay to wait for RF packet
 DEFAULT_PACKET_PROCESSING_INTERVAL_SECONDS = 0.5 # How often to check pending
 
 
@@ -786,7 +786,7 @@ def process_mqtt_message(client, msg, es_client_instance, delayed_processor):
         logger.error("Failed to deserialize MQTT payload, skipping message.")
         return
 
-    is_relayed_via_mqtt = "gatewayId" in raw_packet_dict and raw_packet_dict["gatewayId"] is not None
+    is_relayed_via_mqtt = "gatewayId" in raw_packet_dict and raw_packet_dict["gatewayId"] is not None and raw_packet_dict.get("source", "mqtt") != "rf"
     source_type = "mqtt" if is_relayed_via_mqtt else "rf"
 
     gateway_id = raw_packet_dict.get("gatewayId")

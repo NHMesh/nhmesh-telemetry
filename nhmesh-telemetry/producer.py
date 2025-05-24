@@ -306,6 +306,7 @@ class MeshtasticMQTTHandler:
             out_packet[field_descriptor] = field_value
 
         out_packet["gatewayId"] = self.connected_node_id
+        out_packet["source"] = "rf"
 
         self.publish_dict_to_mqtt(out_packet)
     
