@@ -19,7 +19,8 @@ import time
 import threading # Added for DelayedPacketProcessor
 from paho.mqtt import client as mqtt_client
 from datetime import datetime, timezone
-from utils.envdefault import EnvDefault # Assuming this is a custom utility
+from utils.envdefault import EnvDefault  # Assuming this is a custom utility
+from utils.number_utils import safe_float, safe_float_list, safe_process_position
 from meshtastic.protobuf import mqtt_pb2, mesh_pb2, telemetry_pb2, admin_pb2
 from google.protobuf import json_format, message as google_protobuf_message
 from elasticsearch import Elasticsearch, exceptions as es_exceptions
@@ -572,8 +573,8 @@ def parse_standard_meshtastic_packet(raw_packet_dict):
 
         rx_time_val = raw_packet_dict.get("rxTime")
         rx_timestamp_iso = datetime.fromtimestamp(rx_time_val, timezone.utc).isoformat() if rx_time_val is not None else None
-        lat = position_part.get("latitudeI") / 1e7 if position_part.get("latitudeI") is not None else None
-        lon = position_part.get("longitudeI") / 1e7 if position_part.get("longitudeI") is not None else None
+        lat, lon, _ = safe_process_position(position_part.get("latitudeI"), position_part.get("longitudeI"))
+        # Note: altitude is handled separately in this function
 
         parsed_data = {
             "from_id_num": raw_packet_dict.get("from"), 
@@ -604,7 +605,8 @@ def parse_standard_meshtastic_packet(raw_packet_dict):
             "want_response": decoded_part.get("wantAck") or decoded_part.get("wantResponse"),
             "pki_encrypted": raw_packet_dict.get("encrypted"),
             "pdop": position_part.get("pdop"), 
-            "altitude": position_part.get("altitude") or raw_packet_dict.get("payload", {}).get("altitude"),
+            "altitude": safe_float(position_part.get("altitude")) if position_part.get("altitude") is not None else 
+                    safe_float(raw_packet_dict.get("payload", {}).get("altitude")),
             "latitude": lat or raw_packet_dict.get("payload", {}).get("latitude_i"),
             "longitude": lon or raw_packet_dict.get("payload", {}).get("longitude_i"),
             "precision_bits": position_part.get("precisionBits") or raw_packet_dict.get("payload", {}).get("precision_bits"),
@@ -630,9 +632,9 @@ def parse_standard_meshtastic_packet(raw_packet_dict):
         # Add route information for traceroute packets
         if decoded_part.get("portnum") == "TRACEROUTE_APP":
             parsed_data["route"] = decoded_part.get("route", [])
-            parsed_data["snr_towards"] = decoded_part.get("snrTowards", [])
+            parsed_data["snr_towards"] = safe_float_list(decoded_part.get("snrTowards", []))
             parsed_data["route_back"] = decoded_part.get("routeBack", [])
-            parsed_data["snr_back"] = decoded_part.get("snrBack", [])
+            parsed_data["snr_back"] = safe_float_list(decoded_part.get("snrBack", []))
         return parsed_data
     except Exception as e:
         logger.exception(f"Error parsing standard packet: {e} - Pkt: {str(raw_packet_dict)[:200]}")
@@ -754,9 +756,9 @@ def create_meshdash_event(parsed_packet_data):
     # Add route information for traceroute packets
     if app_type_enum == PacketAppType.TRACEROUTE_APP:
         meshdash_event["route"] = parsed_packet_data.get("route", [])
-        meshdash_event["snr_towards"] = parsed_packet_data.get("snr_towards", [])
+        meshdash_event["snr_towards"] = safe_float_list(parsed_packet_data.get("snr_towards", []))
         meshdash_event["route_back"] = parsed_packet_data.get("route_back", [])
-        meshdash_event["snr_back"] = parsed_packet_data.get("snr_back", [])
+        meshdash_event["snr_back"] = safe_float_list(parsed_packet_data.get("snr_back", []))
 
     return meshdash_event
 # --- End of placeholder ---
