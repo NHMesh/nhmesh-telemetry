@@ -551,7 +551,7 @@ def deserialize_mqtt_payload(payload_bytes):
                         raw_packet_dict["decoded"] = decoded_inner_packet
                         raw_packet_dict["decoded"]["portnum"] = portnum_str
                         if portnum_str == "TEXT_MESSAGE_APP":
-                             raw_packet_dict["decoded"]["payload_bytes_for_text"] = inner_payload_bytes
+                             raw_packet_dict["decoded"]["payload_bytes_for_text"] = inner_payload_bytes.decode("utf-8") if isinstance(inner_payload_bytes, bytes) else inner_payload_bytes
                 except Exception as e:
                     logger.warning(f"Could not base64 or protobuf decode inner payload: {e}")
         except Exception as e:
@@ -624,7 +624,7 @@ def parse_standard_meshtastic_packet(raw_packet_dict):
             except ValueError: parsed_data["user_role"] = f"UNKNOWN_ROLE_INT_{user_part['role']}"
         if decoded_part.get("portnum") == "TEXT_MESSAGE_APP" and "payload_bytes_for_text" in decoded_part:
             try:
-                parsed_data["decoded_content"]["text"] = decoded_part["payload_bytes_for_text"].decode('utf-8')
+                parsed_data["decoded_content"]["text"] = decoded_part["payload_bytes_for_text"].decode('utf-8') if isinstance(decoded_part["payload_bytes_for_text"], bytes) else decoded_part["payload_bytes_for_text"]
                 parsed_data["payload_raw"] = parsed_data["decoded_content"]["text"]
             except UnicodeDecodeError: logger.warning("UTF-8 decode failed for TEXT_MESSAGE_APP payload_bytes")
         # Add route information for traceroute packets
