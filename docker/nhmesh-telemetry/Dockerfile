@@ -1,17 +1,33 @@
-# Use a Python base image.  You can choose a specific version or use a tag like "latest"
-FROM python:3.13
+# Use a Python Alpine base image
+FROM python:3.13-alpine
 
 # Set the working directory inside the container
 WORKDIR /app
 
-# Install the Python dependencies
-RUN pip install poetry
+# Install system dependencies
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    python3-dev \
+    libffi-dev \
+    openssl-dev 
 
-# Copy the application code into the container
-COPY . /app
+# Install poetry
+RUN pip install --no-cache-dir poetry
 
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-root
+# Copy only dependency files to leverage Docker cache
+COPY pyproject.toml poetry.lock* /app/
+
+# Configure poetry and install dependencies
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-interaction --no-ansi --no-root
+
+# Now copy the application code
+COPY ./nhmesh-telemetry /app/nhmesh-telemetry
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Command to run the application
-CMD python /app/nhmesh-telemetry/producer.py
+CMD ["python", "/app/nhmesh-telemetry/producer.py"]
