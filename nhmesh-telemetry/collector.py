@@ -17,6 +17,7 @@ import base64
 import argparse
 import time
 import threading # Added for DelayedPacketProcessor
+from os import environ
 from paho.mqtt import client as mqtt_client
 from datetime import datetime, timezone
 from utils.envdefault import EnvDefault  # Assuming this is a custom utility
@@ -30,7 +31,7 @@ from prettytable import PrettyTable  # Install via `pip install prettytable`
 
 # --- Logging Configuration ---
 logging.basicConfig(
-    level=logging.INFO, # Default to INFO, DEBUG can be noisy
+    level=environ.get('LOG_LEVEL', logging.INFO).upper(),
     format="%(asctime)s - %(name)s - %(levelname)s - %(threadName)s - %(message)s",
     stream=sys.stdout,
 )
