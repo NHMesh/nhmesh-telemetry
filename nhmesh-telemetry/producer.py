@@ -83,6 +83,7 @@ class MeshtasticMQTTHandler:
         node_id = packet.get("from")
         if node_id is None:
             return
+        node_id = str(node_id)  # Ensure node_id is always a string
         is_new_node = node_id not in self._node_cache
         entry = self._node_cache.setdefault(node_id, {"position": None, "long_name": None})
         decoded = packet.get("decoded", {})
@@ -165,6 +166,7 @@ class MeshtasticMQTTHandler:
             self._traceroute_queue.put((node_id, 0))
 
     def _run_traceroute(self, node_id):
+        node_id = str(node_id)  # Ensure node_id is always a string
         entry = self._node_cache.get(node_id, {})
         long_name = entry.get("long_name")
         pos = entry.get("position")
