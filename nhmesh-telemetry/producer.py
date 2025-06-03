@@ -110,9 +110,9 @@ class MeshtasticMQTTHandler:
                         pos = mesh_pb2.Position()
                         pos.ParseFromString(payload_bytes)
                         if pos.latitude_i != 0 and pos.longitude_i != 0:
-                            lat = pos.latitude_i * 1e-7
-                            lon = pos.longitude_i * 1e-7
-                            alt = pos.altitude if pos.altitude != 0 else None
+                            lat = float(pos.latitude_i) * 1e-7
+                            lon = float(pos.longitude_i) * 1e-7
+                            alt = float(pos.altitude) if pos.altitude != 0 else None
                             entry["position"] = (lat, lon, alt)
                         else:
                             entry["position"] = None
@@ -144,9 +144,9 @@ class MeshtasticMQTTHandler:
                         route.ParseFromString(payload_bytes)
                         # Add route information to the packet for MQTT publishing
                         packet["route"] = list(route.route)
-                        packet["snr_towards"] = list(route.snr_towards)
+                        packet["snr_towards"] = [float(snr) for snr in route.snr_towards]
                         packet["route_back"] = list(route.route_back)
-                        packet["snr_back"] = list(route.snr_back)
+                        packet["snr_back"] = [float(snr) for snr in route.snr_back]
                     except Exception as e:
                         logging.warning(f"Error parsing traceroute: {e}")
         # Try to update from interface nodes DB if available
