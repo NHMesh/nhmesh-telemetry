@@ -187,6 +187,8 @@ class MeshtasticMQTTHandler:
                     self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
                     result[0] = True
                 except Exception as e:
+                    import traceback
+                    print (traceback.format_exc())
                     result[0] = e
             t = threading.Thread(target=target)
             t.start()
