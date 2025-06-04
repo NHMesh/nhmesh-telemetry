@@ -15,7 +15,7 @@ import threading
 import queue
 
 logging.basicConfig(
-    level=environ.get('LOG_LEVEL', logging.INFO).upper(),
+    level=environ.get('LOG_LEVEL', "INFO").upper(),
     format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )

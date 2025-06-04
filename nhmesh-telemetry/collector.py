@@ -31,7 +31,7 @@ from prettytable import PrettyTable  # Install via `pip install prettytable`
 
 # --- Logging Configuration ---
 logging.basicConfig(
-    level=environ.get('LOG_LEVEL', logging.INFO).upper(),
+    level=environ.get('LOG_LEVEL', "INFO").upper(),
     format="%(asctime)s - %(name)s - %(levelname)s - %(threadName)s - %(message)s",
     stream=sys.stdout,
 )
