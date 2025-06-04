@@ -1,4 +1,5 @@
 import logging
+from os import environ
 import sys
 import socket
 import paho.mqtt.client as mqtt
@@ -14,7 +15,7 @@ import threading
 import queue
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=environ.get('LOG_LEVEL', logging.INFO).upper(),
     format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
