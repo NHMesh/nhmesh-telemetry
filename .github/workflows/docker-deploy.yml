@@ -1,29 +1,67 @@
-name: Docker Deploy
+name: Build and Publish Docker Images to GHCR.io
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'nhmesh-telemetry/**'
-      - 'docker/**'
-      - 'pyproject.toml'
-      - 'poetry.lock'
-      - '.github/workflows/docker-deploy.yml'
 
 jobs:
-  deploy:
-    runs-on: collector
+  build-and-push:
+    name: Build and push `${{ matrix.image }}` image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: Dockerfile.producer
+            image: telemetry-producer
+          - dockerfile: Dockerfile.collector
+            image: telemetry-collector
+
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          clean: false
 
-      - name: Build and deploy containers
-        run: |
-          cd docker
-          cp ~/telemetry.env .
-          docker compose -f docker-compose.yml pull
-          docker compose -f docker-compose.yml build --no-cache
-          docker compose -f docker-compose.yml up -d --force-recreate
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Get current date
+        id: date
+        run: echo "date=$(date --rfc-3339=seconds | sed 's/ /T/g')" >> $GITHUB_OUTPUT
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/nhmesh-telemetry/${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_DATE=${{ steps.date.outputs.date }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+            GITHUB_REPO=${{ github.repository }}
+            IMAGE_TITLE=${{ github.repository_owner }}/${{ matrix.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -2,7 +2,7 @@ services:
   collector:
     build:
       context: ..
-      dockerfile: docker/nhmesh-telemetry/Dockerfile
+      dockerfile: docker/nhmesh-telemetry/Dockerfile.collector
     restart: always
     environment:
       - MQTT_USERNAME=${MQTT_USERNAME}
@@ -13,19 +13,17 @@ services:
       - ES_ENDPOINT=http://elasticsearch:9200
     depends_on:
       - elasticsearch
-    command: python /app/nhmesh-telemetry/collector.py
 
   producer:
     build:
       context: ..
-      dockerfile: docker/nhmesh-telemetry/Dockerfile
+      dockerfile: docker/nhmesh-telemetry/Dockerfile.producer
     restart: always
     environment:
       - MQTT_USERNAME=${MQTT_USERNAME}
       - MQTT_TOPIC=${MQTT_TOPIC}
       - MQTT_PASSWORD=${MQTT_PASSWORD}
       - NODE_IP=${NODE_IP}
-    command: python /app/nhmesh-telemetry/producer.py
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.18.0
