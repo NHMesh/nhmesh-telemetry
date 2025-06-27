@@ -13,7 +13,7 @@ from utils.number_utils import safe_float, safe_float_list, safe_process_positio
 import time
 import threading
 import queue
-import signal
+
 
 logging.basicConfig(
     level=environ.get('LOG_LEVEL', "INFO").upper(),
@@ -95,8 +95,6 @@ class MeshtasticMQTTHandler:
         is_new_node = node_id not in self._node_cache
         entry = self._node_cache.setdefault(node_id, {"position": None, "long_name": None})
         decoded = packet.get("decoded", {})
-        logging.debug(f"Packet APP: {decoded.get("portnum")}")
-
         # Helper to get bytes from payload
         def get_payload_bytes(payload):
             if isinstance(payload, bytes):
@@ -196,31 +194,13 @@ class MeshtasticMQTTHandler:
                 # Update global traceroute time before attempting
                 self._last_global_traceroute_time = time.time()
                 
-                # Simple timeout using signal (Unix-only, but works on macOS/Linux)
-                def timeout_handler(signum, frame):
-                    raise TimeoutError("Traceroute operation timed out")
-                
-                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(10)  # 10 second timeout
-                
                 try:
                     self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
-                    signal.alarm(0)  # Cancel the alarm
-                    signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
-                    
                     self._last_traceroute_time[node_id] = time.time()
                     logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
                     return True
                     
-                except TimeoutError:
-                    signal.alarm(0)  # Cancel the alarm
-                    signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
-                    logging.error(f"[Traceroute] sendTraceRoute to node {node_id} timed out!")
-                    return False
-                    
                 except Exception as e:
-                    signal.alarm(0)  # Cancel the alarm  
-                    signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
                     logging.error(f"[Traceroute] Error sending traceroute to node {node_id}: {e}")
                     return False
                     
@@ -233,7 +213,6 @@ class MeshtasticMQTTHandler:
             try:
                 # Get the next job from the queue (blocks until available)
                 node_id, retries = self._traceroute_queue.get()
-                logging.debug(f"[Traceroute] current traceroute queue depth: {self._traceroute_queue.qsize()}")
                 logging.info(f"[Traceroute] Worker picked up job for node {node_id}, attempt {retries+1}.")
                 
                 # Check global cooldown before processing
@@ -343,10 +322,8 @@ class MeshtasticMQTTHandler:
         elif isinstance(packet, bytes):
             try:
                 packet_dict = json.loads(packet.decode('utf-8'))
-                logging.debug(f"Packet received is JSON")
             except Exception:
                 # Not JSON, try protobuf
-                logging.debug(f"Packet received is not JSON - trying Protobuf decode")
                 try:
                     mesh_packet = mesh_pb2.MeshPacket()
                     mesh_packet.ParseFromString(packet)
