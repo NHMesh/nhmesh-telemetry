@@ -22,15 +22,16 @@ docker run -d \
 
 #### Environment Variables
 
-| Variable        | Default            | Description                                     |
-| --------------- | ------------------ | ----------------------------------------------- |
-| `LOG_LEVEL`     | `INFO`             | Logging level (DEBUG, INFO, WARNING, ERROR)     |
-| `MQTT_ENDPOINT` | `mqtt.nhmesh.live` | MQTT broker address                             |
-| `MQTT_PORT`     | `1883`             | MQTT broker port                                |
-| `MQTT_USERNAME` | -                  | MQTT username for authentication                |
-| `MQTT_PASSWORD` | -                  | MQTT password for authentication                |
-| `NODE_IP`       | -                  | IP address of the Meshtastic node to connect to |
-| `MQTT_TOPIC`    | `msh/US/NH/`       | Root MQTT topic for publishing messages         |
+| Variable             | Default            | Description                                     |
+| -------------------- | ------------------ | ----------------------------------------------- |
+| `LOG_LEVEL`          | `INFO`             | Logging level (DEBUG, INFO, WARNING, ERROR)     |
+| `MQTT_ENDPOINT`      | `mqtt.nhmesh.live` | MQTT broker address                             |
+| `MQTT_PORT`          | `1883`             | MQTT broker port                                |
+| `MQTT_USERNAME`      | -                  | MQTT username for authentication                |
+| `MQTT_PASSWORD`      | -                  | MQTT password for authentication                |
+| `NODE_IP`            | -                  | IP address of the Meshtastic node to connect to |
+| `MQTT_TOPIC`         | `msh/US/NH/`       | Root MQTT topic for publishing messages         |
+| `TRACEROUTE_COOLDOWN`| `30`               | Cooldown between traceroutes in seconds         |
 
 #### Description
 

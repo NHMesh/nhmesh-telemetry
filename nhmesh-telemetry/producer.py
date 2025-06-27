@@ -13,6 +13,7 @@ from utils.number_utils import safe_float, safe_float_list, safe_process_positio
 import time
 import threading
 import queue
+import signal
 
 logging.basicConfig(
     level=environ.get('LOG_LEVEL', "INFO").upper(),
@@ -34,9 +35,10 @@ class MeshtasticMQTTHandler:
         username (str): The MQTT username.
         password (str): The MQTT password.
         node_ip (str): The IP address of the Meshtastic node.
+        traceroute_cooldown (int): Cooldown between traceroutes in seconds (default: 30).
     """
     
-    def __init__(self, broker, port, topic, tls, username, password, node_ip):
+    def __init__(self, broker, port, topic, tls, username, password, node_ip, traceroute_cooldown=30):
         """
         Initializes the MeshtasticMQTTHandler.
         """
@@ -67,10 +69,14 @@ class MeshtasticMQTTHandler:
         self._node_cache = {}  # node_id -> {"position": (lat, lon, alt), "long_name": str}
         self._last_traceroute_time = {}
         self._TRACEROUTE_INTERVAL = 3 * 60 * 60  # 3 hours
+        self._TRACEROUTE_COOLDOWN = traceroute_cooldown  # Configurable cooldown between any traceroutes
+        self._last_global_traceroute_time = 0  # Global cooldown timestamp
         self._traceroute_queue = queue.Queue()
+        self._traceroute_in_progress = threading.Lock()  # Ensure only one traceroute at a time
+        
         self._traceroute_worker_thread = threading.Thread(target=self._traceroute_worker, daemon=True)
         self._traceroute_worker_thread.start()
-        logging.info("Traceroute worker thread started.")
+        logging.info(f"Traceroute worker thread started with single-threaded processing and {traceroute_cooldown}s cooldown.")
 
     def _format_position(self, pos):
         if pos is None:
@@ -171,54 +177,115 @@ class MeshtasticMQTTHandler:
         long_name = entry.get("long_name")
         pos = entry.get("position")
         logging.info(f"[Traceroute] Running traceroute for Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)}")
-        try:
-            # Log node info before traceroute
+        
+        # Acquire lock to ensure only one traceroute at a time
+        with self._traceroute_in_progress:
             try:
-                info = self.interface.getMyNodeInfo()
-                logging.info(f"[Traceroute] Node info before traceroute: {info}")
-            except Exception as e:
-                logging.error(f"[Traceroute] Failed to get node info before traceroute: {e}")
-            # Pre traceroute log
-            logging.info(f"[Traceroute] About to send traceroute to {node_id}")
-            # Timeout wrapper for sendTraceRoute
-            result = [None]
-            def target():
+                # Log node info before traceroute
+                try:
+                    info = self.interface.getMyNodeInfo()
+                    logging.info(f"[Traceroute] Node info before traceroute: {info}")
+                except Exception as e:
+                    logging.error(f"[Traceroute] Failed to get node info before traceroute: {e}")
+                
+                # Pre traceroute log
+                logging.info(f"[Traceroute] About to send traceroute to {node_id}")
+                
+                # Update global traceroute time before attempting
+                self._last_global_traceroute_time = time.time()
+                
+                # Simple timeout using signal (Unix-only, but works on macOS/Linux)
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("Traceroute operation timed out")
+                
+                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(10)  # 10 second timeout
+                
                 try:
                     self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
-                    result[0] = True
+                    signal.alarm(0)  # Cancel the alarm
+                    signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
+                    
+                    self._last_traceroute_time[node_id] = time.time()
+                    logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
+                    return True
+                    
+                except TimeoutError:
+                    signal.alarm(0)  # Cancel the alarm
+                    signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
+                    logging.error(f"[Traceroute] sendTraceRoute to node {node_id} timed out!")
+                    return False
+                    
                 except Exception as e:
-                    import traceback
-                    print (traceback.format_exc())
-                    result[0] = e
-            t = threading.Thread(target=target)
-            t.start()
-            t.join(timeout=1)  # 10 second timeout
-            if t.is_alive():
-                logging.error(f"[Traceroute] sendTraceRoute to node {node_id} timed out!")
+                    signal.alarm(0)  # Cancel the alarm  
+                    signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
+                    logging.error(f"[Traceroute] Error sending traceroute to node {node_id}: {e}")
+                    return False
+                    
+            except Exception as e:
+                logging.error(f"[Traceroute] Unexpected error sending traceroute to node {node_id}: {e}")
                 return False
-            if result[0] is True:
-                self._last_traceroute_time[node_id] = time.time()
-                logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
-                return True
-            else:
-                logging.error(f"[Traceroute] Error sending traceroute to node {node_id}: {result[0]}")
-                return False
-        except Exception as e:
-            logging.error(f"[Traceroute] Unexpected error sending traceroute to node {node_id}: {e}")
-            return False
 
     def _traceroute_worker(self):
         while True:
             try:
+                # Get the next job from the queue (blocks until available)
                 node_id, retries = self._traceroute_queue.get()
+                logging.debug(f"[Traceroute] current traceroute queue depth: {self._traceroute_queue.qsize()}")
                 logging.info(f"[Traceroute] Worker picked up job for node {node_id}, attempt {retries+1}.")
+                
+                # Check global cooldown before processing
+                now = time.time()
+                time_since_last = now - self._last_global_traceroute_time
+                
+                if time_since_last < self._TRACEROUTE_COOLDOWN:
+                    wait_time = self._TRACEROUTE_COOLDOWN - time_since_last
+                    logging.info(f"[Traceroute] Global cooldown active, sleeping {wait_time:.1f} seconds before processing node {node_id}")
+                    
+                    # Sleep in small increments to remain responsive
+                    while wait_time > 0:
+                        sleep_duration = min(wait_time, 1.0)  # Sleep max 1 second at a time
+                        time.sleep(sleep_duration)
+                        wait_time -= sleep_duration
+                        
+                        # Re-check if we still need to wait (in case another traceroute completed)
+                        current_time = time.time()
+                        remaining_cooldown = self._TRACEROUTE_COOLDOWN - (current_time - self._last_global_traceroute_time)
+                        if remaining_cooldown <= 0:
+                            break
+                        wait_time = min(wait_time, remaining_cooldown)
+                
                 success = self._run_traceroute(node_id)
                 if not success:
                     logging.error(f"[Traceroute] Failed to traceroute node {node_id} after {retries+1} attempts.")
                 else:
                     logging.info(f"[Traceroute] Traceroute for node {node_id} completed or sent.")
+                    
             except Exception as e:
                 logging.error(f"[Traceroute] Worker encountered error: {e}")
+
+    def cleanup(self):
+        """
+        Properly cleanup all resources.
+        """
+        logging.info("[Cleanup] Starting cleanup process...")
+        
+        # Close interface
+        if hasattr(self, 'interface'):
+            try:
+                self.interface.close()
+                logging.info("[Cleanup] Meshtastic interface closed.")
+            except Exception as e:
+                logging.error(f"[Cleanup] Error closing interface: {e}")
+        
+        # Disconnect MQTT
+        if hasattr(self, 'mqtt_client'):
+            try:
+                self.mqtt_client.disconnect()
+                self.mqtt_client.loop_stop()
+                logging.info("[Cleanup] MQTT client disconnected.")
+            except Exception as e:
+                logging.error(f"[Cleanup] Error disconnecting MQTT: {e}")
 
     def connect(self):
         """
@@ -249,13 +316,13 @@ class MeshtasticMQTTHandler:
                     logging.error("Max reconnection attempts reached. Exiting...")
                     raise
             except KeyboardInterrupt:
-                self.interface.close()
-                self.mqtt_client.disconnect()
-                self.mqtt_client.loop_stop()
+                logging.info("Received KeyboardInterrupt, cleaning up...")
+                self.cleanup()
                 print("Exiting...")
                 sys.exit(0)
             except Exception as e:
                 logging.error(f"Unexpected error: {e}")
+                self.cleanup()
                 raise
         
     def onReceive(self, packet, interface): # called when a packet arrives
@@ -340,11 +407,29 @@ if __name__ == "__main__":
     parser.add_argument('--username', action=EnvDefault, envvar="MQTT_USERNAME", help='MQTT username')
     parser.add_argument('--password', action=EnvDefault, envvar="MQTT_PASSWORD", help='MQTT password')
     parser.add_argument('--node-ip', action=EnvDefault, envvar="NODE_IP", help='Node IP address')
+    parser.add_argument('--traceroute-cooldown', default=30, type=int, action=EnvDefault, envvar="TRACEROUTE_COOLDOWN", help='Cooldown between traceroutes in seconds (default: 30)')
     args = parser.parse_args()
 
+    client = None
     try:
-        client = MeshtasticMQTTHandler(args.broker, args.port, args.topic, args.tls, args.username, args.password, args.node_ip)
+        client = MeshtasticMQTTHandler(
+            args.broker, 
+            args.port, 
+            args.topic, 
+            args.tls, 
+            args.username, 
+            args.password, 
+            args.node_ip,
+            args.traceroute_cooldown
+        )
         client.connect()
+    except KeyboardInterrupt:
+        logging.info("Received KeyboardInterrupt in main, cleaning up...")
+        if client:
+            client.cleanup()
+        sys.exit(0)
     except Exception as e:
         logging.error(f"Fatal error: {e}")
+        if client:
+            client.cleanup()
         sys.exit(1)
