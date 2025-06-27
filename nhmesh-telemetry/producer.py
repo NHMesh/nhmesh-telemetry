@@ -222,6 +222,7 @@ class MeshtasticMQTTHandler:
                 # Get the next job from the queue (blocks until available)
                 node_id, retries = self._traceroute_queue.get()
                 logging.info(f"[Traceroute] Worker picked up job for node {node_id}, attempt {retries+1}.")
+                logging.info(f"[Traceroute] Current queue depth: {self._traceroute_queue.qsize()}")
                 
                 # Check global cooldown before processing
                 now = time.time()
