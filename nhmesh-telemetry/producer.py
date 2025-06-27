@@ -10,9 +10,9 @@ from pubsub import pub
 import argparse
 from utils.envdefault import EnvDefault
 from utils.number_utils import safe_float, safe_float_list, safe_process_position
+from utils.deduplicated_queue import DeduplicatedQueue
 import time
 import threading
-import queue
 
 
 logging.basicConfig(
@@ -71,7 +71,8 @@ class MeshtasticMQTTHandler:
         self._TRACEROUTE_INTERVAL = 3 * 60 * 60  # 3 hours
         self._TRACEROUTE_COOLDOWN = traceroute_cooldown  # Configurable cooldown between any traceroutes
         self._last_global_traceroute_time = 0  # Global cooldown timestamp
-        self._traceroute_queue = queue.Queue()
+        # Function provided uses the node_id as the key for deduplication
+        self._traceroute_queue = DeduplicatedQueue(key_func=lambda x: x[0])
         self._traceroute_in_progress = threading.Lock()  # Ensure only one traceroute at a time
         
         self._traceroute_worker_thread = threading.Thread(target=self._traceroute_worker, daemon=True)
@@ -162,14 +163,21 @@ class MeshtasticMQTTHandler:
                 entry["long_name"] = user.get("longName") or entry["long_name"]
         # Enqueue traceroute for new nodes
         if is_new_node:
-            logging.info(f"[Traceroute] New node discovered: {node_id}, enqueuing traceroute job.")
-            self._traceroute_queue.put((node_id, 0))  # 0 retries so far
+            node_id = str(node_id)  # Ensure node_id is always a string
+            if self._traceroute_queue.put((node_id, 0)):  # 0 retries so far
+                logging.info(f"[Traceroute] New node discovered: {node_id}, enqueued traceroute job.")
+            else:
+                logging.debug(f"[Traceroute] New node {node_id} already queued, skipping duplicate.")
+            
         # Periodic re-traceroute
         now = time.time()
         last_time = self._last_traceroute_time.get(node_id, 0)
         if now - last_time > self._TRACEROUTE_INTERVAL:
-            logging.info(f"[Traceroute] Periodic traceroute needed for node {node_id}, enqueuing job.")
-            self._traceroute_queue.put((node_id, 0))
+            node_id = str(node_id)  # Ensure node_id is always a string
+            if self._traceroute_queue.put((node_id, 0)):  # 0 retries so far
+                logging.info(f"[Traceroute] Periodic traceroute needed for node {node_id}, enqueued job.")
+            else:
+                logging.debug(f"[Traceroute] Periodic traceroute for node {node_id} already queued, skipping duplicate.")
 
     def _run_traceroute(self, node_id):
         node_id = str(node_id)  # Ensure node_id is always a string
