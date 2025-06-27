@@ -95,6 +95,8 @@ class MeshtasticMQTTHandler:
         is_new_node = node_id not in self._node_cache
         entry = self._node_cache.setdefault(node_id, {"position": None, "long_name": None})
         decoded = packet.get("decoded", {})
+        logging.debug(f"Packet APP: {decoded.get("portnum")}")
+
         # Helper to get bytes from payload
         def get_payload_bytes(payload):
             if isinstance(payload, bytes):
@@ -341,8 +343,10 @@ class MeshtasticMQTTHandler:
         elif isinstance(packet, bytes):
             try:
                 packet_dict = json.loads(packet.decode('utf-8'))
+                logging.debug(f"Packet received is JSON")
             except Exception:
                 # Not JSON, try protobuf
+                logging.debug(f"Packet received is not JSON - trying Protobuf decode")
                 try:
                     mesh_packet = mesh_pb2.MeshPacket()
                     mesh_packet.ParseFromString(packet)
