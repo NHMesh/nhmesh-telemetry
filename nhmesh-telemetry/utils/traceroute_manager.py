@@ -18,7 +18,7 @@ class TracerouteManager:
     - TRACEROUTE_PERSISTENCE_FILE: Path to file for persisting retry/backoff state (default: /tmp/traceroute_state.json)
     """
     
-    def __init__(self, interface, node_cache, traceroute_cooldown=30, traceroute_interval=None, max_retries=None, max_backoff=None, persistence_file='/tmp/traceroute_state.json'):
+    def __init__(self, interface, node_cache, traceroute_cooldown=30, traceroute_interval=None, max_retries=None, max_backoff=None, traceroute_persistence_file='/tmp/traceroute_state.json'):
         """
         Initialize the TracerouteManager.
         
@@ -42,7 +42,7 @@ class TracerouteManager:
         self._MAX_BACKOFF = max_backoff if max_backoff is not None else int(os.getenv('TRACEROUTE_MAX_BACKOFF', 24 * 60 * 60))  # Default: 24 hours
         
         # Persistence configuration
-        self._persistence_file = persistence_file
+        self._persistence_file = traceroute_persistence_file
         self._persistence_lock = threading.Lock()  # Thread-safe file operations
         
         # Traceroute tracking (initialized from persistence or empty)
