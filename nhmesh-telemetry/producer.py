@@ -9,10 +9,9 @@ import meshtastic.tcp_interface
 from pubsub import pub
 import argparse
 from utils.envdefault import EnvDefault
-from utils.number_utils import safe_float, safe_float_list, safe_process_position
-from utils.deduplicated_queue import DeduplicatedQueue
+from utils.traceroute_manager import TracerouteManager
+from utils.node_cache import NodeCache
 import time
-import threading
 
 
 logging.basicConfig(
@@ -36,9 +35,13 @@ class MeshtasticMQTTHandler:
         password (str): The MQTT password.
         node_ip (str): The IP address of the Meshtastic node.
         traceroute_cooldown (int): Cooldown between traceroutes in seconds (default: 30).
+        traceroute_interval (int): Interval between periodic traceroutes in seconds (default: 10800).
+        traceroute_max_retries (int): Maximum retry attempts for failed traceroutes (default: 5).
+        traceroute_max_backoff (int): Maximum backoff time in seconds (default: 86400).
     """
     
-    def __init__(self, broker, port, topic, tls, username, password, node_ip, traceroute_cooldown=30):
+    def __init__(self, broker, port, topic, tls, username, password, node_ip, traceroute_cooldown=30, 
+                 traceroute_interval=10800, traceroute_max_retries=5, traceroute_max_backoff=86400):
         """
         Initializes the MeshtasticMQTTHandler.
         """
@@ -65,194 +68,35 @@ class MeshtasticMQTTHandler:
 
         pub.subscribe(self.onReceive, "meshtastic.receive")
 
-        # --- Traceroute Daemon Feature ---
-        self._node_cache = {}  # node_id -> {"position": (lat, lon, alt), "long_name": str}
-        self._last_traceroute_time = {}
-        self._TRACEROUTE_INTERVAL = 3 * 60 * 60  # 3 hours
-        self._TRACEROUTE_COOLDOWN = traceroute_cooldown  # Configurable cooldown between any traceroutes
-        self._last_global_traceroute_time = 0  # Global cooldown timestamp
-        # Function provided uses the node_id as the key for deduplication
-        self._traceroute_queue = DeduplicatedQueue(key_func=lambda x: x[0])
-        self._traceroute_in_progress = threading.Lock()  # Ensure only one traceroute at a time
+        # --- Node Cache and Traceroute Daemon Feature ---
+        self.node_cache = NodeCache(self.interface)
         
-        self._traceroute_worker_thread = threading.Thread(target=self._traceroute_worker, daemon=True)
-        self._traceroute_worker_thread.start()
-        logging.info(f"Traceroute worker thread started with single-threaded processing and {traceroute_cooldown}s cooldown.")
-
-    def _format_position(self, pos):
-        if pos is None:
-            return "UNKNOWN"
-        lat, lon, alt = pos
-        s = f"({lat:.7f}, {lon:.7f})"
-        if alt is not None:
-            s += f" {alt}m"
-        return s
+        # Pass configuration parameters directly to TracerouteManager
+        self.traceroute_manager = TracerouteManager(
+            self.interface, 
+            self.node_cache, 
+            traceroute_cooldown,
+            traceroute_interval,
+            traceroute_max_retries,
+            traceroute_max_backoff
+        )
 
     def _update_cache_from_packet(self, packet):
+        """
+        Update cache from packet and delegate traceroute logic to TracerouteManager.
+        
+        Args:
+            packet (dict): The received packet dictionary
+        """
+        # Update node cache and get whether this is a new node
         node_id = packet.get("from")
         if node_id is None:
             return
-        node_id = str(node_id)  # Ensure node_id is always a string
-        is_new_node = node_id not in self._node_cache
-        entry = self._node_cache.setdefault(node_id, {"position": None, "long_name": None})
-        decoded = packet.get("decoded", {})
-        # Helper to get bytes from payload
-        def get_payload_bytes(payload):
-            if isinstance(payload, bytes):
-                return payload
-            elif isinstance(payload, str):
-                import base64
-                try:
-                    return base64.b64decode(payload)
-                except Exception:
-                    return None
-            else:
-                return None
-        # POSITION_APP
-        if decoded.get("portnum") == "POSITION_APP":
-            payload = decoded.get("payload")
-            if not isinstance(payload, dict):
-                payload_bytes = get_payload_bytes(payload)
-                if payload_bytes:
-                    try:
-                        from meshtastic.protobuf import mesh_pb2
-                        pos = mesh_pb2.Position()
-                        pos.ParseFromString(payload_bytes)
-                        if pos.latitude_i != 0 and pos.longitude_i != 0:
-                            lat, lon, alt = safe_process_position(pos.latitude_i, pos.longitude_i, pos.altitude)
-                            entry["position"] = (lat, lon, alt)
-                        else:
-                            entry["position"] = None
-                    except Exception as e:
-                        logging.warning(f"Error parsing position: {e}")
-        # USER_APP
-        if decoded.get("portnum") == "USER_APP":
-            payload = decoded.get("payload")
-            if not isinstance(payload, dict):
-                payload_bytes = get_payload_bytes(payload)
-                if payload_bytes:
-                    try:
-                        from meshtastic.protobuf import mesh_pb2
-                        user = mesh_pb2.User()
-                        user.ParseFromString(payload_bytes)
-                        if user.long_name:
-                            entry["long_name"] = user.long_name
-                    except Exception as e:
-                        logging.warning(f"Error parsing user: {e}")
-        # TRACEROUTE_APP
-        if decoded.get("portnum") == "TRACEROUTE_APP":
-            payload = decoded.get("payload")
-            if not isinstance(payload, dict):
-                payload_bytes = get_payload_bytes(payload)
-                if payload_bytes:
-                    try:
-                        from meshtastic.protobuf import mesh_pb2
-                        route = mesh_pb2.RouteDiscovery()
-                        route.ParseFromString(payload_bytes)
-                        # Add route information to the packet for MQTT publishing
-                        packet["route"] = list(route.route)
-                        packet["snr_towards"] = safe_float_list(route.snr_towards)
-                        packet["route_back"] = list(route.route_back)
-                        packet["snr_back"] = safe_float_list(route.snr_back)
-                    except Exception as e:
-                        logging.warning(f"Error parsing traceroute: {e}")
-        # Try to update from interface nodes DB if available
-        if hasattr(self.interface, "nodes") and node_id in self.interface.nodes:
-            user = self.interface.nodes[node_id].get("user", {})
-            if user:
-                entry["long_name"] = user.get("longName") or entry["long_name"]
-        # Enqueue traceroute for new nodes
-        if is_new_node:
-            node_id = str(node_id)  # Ensure node_id is always a string
-            if self._traceroute_queue.put((node_id, 0)):  # 0 retries so far
-                logging.info(f"[Traceroute] New node discovered: {node_id}, enqueued traceroute job.")
-            else:
-                logging.debug(f"[Traceroute] New node {node_id} already queued, skipping duplicate.")
             
-        # Periodic re-traceroute
-        now = time.time()
-        last_time = self._last_traceroute_time.get(node_id, 0)
-        if now - last_time > self._TRACEROUTE_INTERVAL:
-            node_id = str(node_id)  # Ensure node_id is always a string
-            if self._traceroute_queue.put((node_id, 0)):  # 0 retries so far
-                logging.info(f"[Traceroute] Periodic traceroute needed for node {node_id}, enqueued job.")
-            else:
-                logging.debug(f"[Traceroute] Periodic traceroute for node {node_id} already queued, skipping duplicate.")
-
-    def _run_traceroute(self, node_id):
-        node_id = str(node_id)  # Ensure node_id is always a string
-        entry = self._node_cache.get(node_id, {})
-        long_name = entry.get("long_name")
-        pos = entry.get("position")
-        logging.info(f"[Traceroute] Running traceroute for Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)}")
+        is_new_node = self.node_cache.update_from_packet(packet)
         
-        # Acquire lock to ensure only one traceroute at a time
-        with self._traceroute_in_progress:
-            try:
-                # Log node info before traceroute
-                try:
-                    info = self.interface.getMyNodeInfo()
-                    logging.info(f"[Traceroute] Node info before traceroute: {info}")
-                except Exception as e:
-                    logging.error(f"[Traceroute] Failed to get node info before traceroute: {e}")
-                
-                # Pre traceroute log
-                logging.info(f"[Traceroute] About to send traceroute to {node_id}")
-                
-                # Update global traceroute time before attempting
-                self._last_global_traceroute_time = time.time()
-                
-                try:
-                    self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
-                    self._last_traceroute_time[node_id] = time.time()
-                    logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
-                    return True
-                    
-                except Exception as e:
-                    logging.error(f"[Traceroute] Error sending traceroute to node {node_id}: {e}")
-                    return False
-                    
-            except Exception as e:
-                logging.error(f"[Traceroute] Unexpected error sending traceroute to node {node_id}: {e}")
-                return False
-
-    def _traceroute_worker(self):
-        while True:
-            try:
-                # Get the next job from the queue (blocks until available)
-                node_id, retries = self._traceroute_queue.get()
-                logging.info(f"[Traceroute] Worker picked up job for node {node_id}, attempt {retries+1}.")
-                logging.info(f"[Traceroute] Current queue depth: {self._traceroute_queue.qsize()}")
-                
-                # Check global cooldown before processing
-                now = time.time()
-                time_since_last = now - self._last_global_traceroute_time
-                
-                if time_since_last < self._TRACEROUTE_COOLDOWN:
-                    wait_time = self._TRACEROUTE_COOLDOWN - time_since_last
-                    logging.info(f"[Traceroute] Global cooldown active, sleeping {wait_time:.1f} seconds before processing node {node_id}")
-                    
-                    # Sleep in small increments to remain responsive
-                    while wait_time > 0:
-                        sleep_duration = min(wait_time, 1.0)  # Sleep max 1 second at a time
-                        time.sleep(sleep_duration)
-                        wait_time -= sleep_duration
-                        
-                        # Re-check if we still need to wait (in case another traceroute completed)
-                        current_time = time.time()
-                        remaining_cooldown = self._TRACEROUTE_COOLDOWN - (current_time - self._last_global_traceroute_time)
-                        if remaining_cooldown <= 0:
-                            break
-                        wait_time = min(wait_time, remaining_cooldown)
-                
-                success = self._run_traceroute(node_id)
-                if not success:
-                    logging.error(f"[Traceroute] Failed to traceroute node {node_id} after {retries+1} attempts.")
-                else:
-                    logging.info(f"[Traceroute] Traceroute for node {node_id} completed or sent.")
-                    
-            except Exception as e:
-                logging.error(f"[Traceroute] Worker encountered error: {e}")
+        # Delegate traceroute queueing logic to TracerouteManager
+        self.traceroute_manager.process_packet_for_traceroutes(node_id, is_new_node)
 
     def cleanup(self):
         """
@@ -361,7 +205,9 @@ class MeshtasticMQTTHandler:
             return
 
         self._update_cache_from_packet(packet_dict)
+
         logging.info("Packet Received!")
+
         out_packet = {}
         for field_descriptor, field_value in packet_dict.items():
             out_packet[field_descriptor] = field_value
@@ -398,6 +244,9 @@ if __name__ == "__main__":
     parser.add_argument('--password', action=EnvDefault, envvar="MQTT_PASSWORD", help='MQTT password')
     parser.add_argument('--node-ip', action=EnvDefault, envvar="NODE_IP", help='Node IP address')
     parser.add_argument('--traceroute-cooldown', default=30, type=int, action=EnvDefault, envvar="TRACEROUTE_COOLDOWN", help='Cooldown between traceroutes in seconds (default: 30)')
+    parser.add_argument('--traceroute-interval', default=10800, type=int, action=EnvDefault, envvar="TRACEROUTE_INTERVAL", help='Interval between periodic traceroutes in seconds (default: 10800 = 3 hours)')
+    parser.add_argument('--traceroute-max-retries', default=5, type=int, action=EnvDefault, envvar="TRACEROUTE_MAX_RETRIES", help='Maximum number of retry attempts for failed traceroutes (default: 5)')
+    parser.add_argument('--traceroute-max-backoff', default=86400, type=int, action=EnvDefault, envvar="TRACEROUTE_MAX_BACKOFF", help='Maximum backoff time in seconds for failed nodes (default: 86400 = 24 hours)')
     args = parser.parse_args()
 
     client = None
@@ -410,7 +259,10 @@ if __name__ == "__main__":
             args.username, 
             args.password, 
             args.node_ip,
-            args.traceroute_cooldown
+            args.traceroute_cooldown,
+            args.traceroute_interval,
+            args.traceroute_max_retries,
+            args.traceroute_max_backoff
         )
         client.connect()
     except KeyboardInterrupt:

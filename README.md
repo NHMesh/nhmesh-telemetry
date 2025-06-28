@@ -22,20 +22,28 @@ docker run -d \
 
 #### Environment Variables
 
-| Variable             | Default            | Description                                     |
-| -------------------- | ------------------ | ----------------------------------------------- |
-| `LOG_LEVEL`          | `INFO`             | Logging level (DEBUG, INFO, WARNING, ERROR)     |
-| `MQTT_ENDPOINT`      | `mqtt.nhmesh.live` | MQTT broker address                             |
-| `MQTT_PORT`          | `1883`             | MQTT broker port                                |
-| `MQTT_USERNAME`      | -                  | MQTT username for authentication                |
-| `MQTT_PASSWORD`      | -                  | MQTT password for authentication                |
-| `NODE_IP`            | -                  | IP address of the Meshtastic node to connect to |
-| `MQTT_TOPIC`         | `msh/US/NH/`       | Root MQTT topic for publishing messages         |
-| `TRACEROUTE_COOLDOWN`| `30`               | Cooldown between traceroutes in seconds         |
+| Variable                  | Default            | Description                                                    |
+| ------------------------- | ------------------ | -------------------------------------------------------------- |
+| `LOG_LEVEL`               | `INFO`             | Logging level (DEBUG, INFO, WARNING, ERROR)                   |
+| `MQTT_ENDPOINT`           | `mqtt.nhmesh.live` | MQTT broker address                                            |
+| `MQTT_PORT`               | `1883`             | MQTT broker port                                               |
+| `MQTT_USERNAME`           | -                  | MQTT username for authentication                               |
+| `MQTT_PASSWORD`           | -                  | MQTT password for authentication                               |
+| `NODE_IP`                 | -                  | IP address of the Meshtastic node to connect to               |
+| `MQTT_TOPIC`              | `msh/US/NH/`       | Root MQTT topic for publishing messages                       |
+| `TRACEROUTE_INTERVAL`     | `10800`            | Interval between periodic traceroutes in seconds (3 hours)    |
+| `TRACEROUTE_MAX_RETRIES`  | `5`                | Maximum number of retry attempts for failed traceroutes       |
+| `TRACEROUTE_MAX_BACKOFF`  | `86400`            | Maximum backoff time in seconds for failed nodes (24 hours)   |
 
 #### Description
 
 The Producer container connects to a Meshtastic node via its HTTP API and forwards packets from the mesh network to an MQTT broker. This allows for remote monitoring and processing of Meshtastic network traffic.
+
+The producer includes intelligent traceroute functionality that:
+- Automatically performs traceroutes to newly discovered nodes
+- Periodically re-traceroutes known nodes at configurable intervals
+- Implements exponential backoff for nodes that consistently fail traceroutes
+- Uses configurable retry limits and maximum backoff times to prevent resource waste
 
 The producer requires:
 1. A running Meshtastic node with HTTP API enabled
