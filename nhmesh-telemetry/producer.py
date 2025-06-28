@@ -215,8 +215,8 @@ class MeshtasticMQTTHandler:
 
         self._update_cache_from_packet(packet_dict)
 
-        logging.info("Packet Received!")
-        logging.debug(f"Packet: {packet_dict}")
+        logging.info(f"[main] Packet received from '{packet_dict.get("from", "unknown")}' to '{packet_dict.get("to", "unknown")}'")
+        logging.debug(f"[main] Raw packet: {packet_dict}")
 
         out_packet = {}
         for field_descriptor, field_value in packet_dict.items():
