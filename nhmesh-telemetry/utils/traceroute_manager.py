@@ -2,6 +2,7 @@ import logging
 import os
 import time
 import threading
+import json
 from typing import Dict
 from utils.deduplicated_queue import DeduplicatedQueue
 
@@ -14,9 +15,10 @@ class TracerouteManager:
     - TRACEROUTE_INTERVAL: Interval between periodic traceroutes in seconds (default: 10800 = 3 hours)
     - TRACEROUTE_MAX_RETRIES: Maximum number of retry attempts for failed traceroutes (default: 5)
     - TRACEROUTE_MAX_BACKOFF: Maximum backoff time in seconds (default: 86400 = 24 hours)
+    - TRACEROUTE_PERSISTENCE_FILE: Path to file for persisting retry/backoff state (default: /tmp/traceroute_state.json)
     """
     
-    def __init__(self, interface, node_cache, traceroute_cooldown=30, traceroute_interval=None, max_retries=None, max_backoff=None):
+    def __init__(self, interface, node_cache, traceroute_cooldown=30, traceroute_interval=None, max_retries=None, max_backoff=None, persistence_file='/tmp/traceroute_state.json'):
         """
         Initialize the TracerouteManager.
         
@@ -27,14 +29,10 @@ class TracerouteManager:
             traceroute_interval (int): Interval between periodic traceroutes in seconds (default from env or 10800)
             max_retries (int): Maximum number of retry attempts (default from env or 5)
             max_backoff (int): Maximum backoff time in seconds (default from env or 86400)
+            persistence_file (str): Path to file for persisting retry/backoff data (default from env or '/tmp/traceroute_state.json')
         """
         self.interface = interface
         self.node_cache = node_cache
-        
-        # Traceroute tracking (no longer managing node cache)
-        self._last_traceroute_time: Dict[str, float] = {}  # node_id -> timestamp when last traceroute was sent
-        self._node_failure_counts: Dict[str, int] = {}  # node_id -> count of consecutive failures
-        self._node_backoff_until: Dict[str, float] = {}  # node_id -> timestamp when node can be retried again
         
         # Configuration with environment variable defaults or passed parameters
         self._TRACEROUTE_INTERVAL = traceroute_interval if traceroute_interval is not None else int(os.getenv('TRACEROUTE_INTERVAL', 3 * 60 * 60))  # Default: 3 hours
@@ -42,6 +40,18 @@ class TracerouteManager:
         self._last_global_traceroute_time = 0  # Global cooldown timestamp
         self._MAX_RETRIES = max_retries if max_retries is not None else int(os.getenv('TRACEROUTE_MAX_RETRIES', 5))  # Default: 5 retries
         self._MAX_BACKOFF = max_backoff if max_backoff is not None else int(os.getenv('TRACEROUTE_MAX_BACKOFF', 24 * 60 * 60))  # Default: 24 hours
+        
+        # Persistence configuration
+        self._persistence_file = persistence_file
+        self._persistence_lock = threading.Lock()  # Thread-safe file operations
+        
+        # Traceroute tracking (initialized from persistence or empty)
+        self._last_traceroute_time: Dict[str, float] = {}  # node_id -> timestamp when last traceroute was sent
+        self._node_failure_counts: Dict[str, int] = {}  # node_id -> count of consecutive failures
+        self._node_backoff_until: Dict[str, float] = {}  # node_id -> timestamp when node can be retried again
+        
+        # Load persisted state
+        self._load_state()
         
         # Queue and threading
         self._traceroute_queue = DeduplicatedQueue(key_func=lambda x: x[0])
@@ -52,6 +62,73 @@ class TracerouteManager:
         self._traceroute_worker_thread.start()
         logging.info(f"Traceroute worker thread started with single-threaded processing and {traceroute_cooldown}s cooldown.")
         logging.info(f"Traceroute configuration: interval={self._TRACEROUTE_INTERVAL}s, max_retries={self._MAX_RETRIES}, max_backoff={self._MAX_BACKOFF}s")
+        logging.info(f"Traceroute persistence: {self._persistence_file}")
+
+    def _load_state(self):
+        """
+        Load persisted traceroute state from filesystem.
+        """
+        try:
+            if os.path.exists(self._persistence_file):
+                with open(self._persistence_file, 'r') as f:
+                    data = json.load(f)
+                    
+                # Load data with validation
+                self._last_traceroute_time = data.get('last_traceroute_time', {})
+                self._node_failure_counts = data.get('node_failure_counts', {})
+                self._node_backoff_until = data.get('node_backoff_until', {})
+                
+                # Clean up expired backoffs
+                now = time.time()
+                expired_nodes = [node_id for node_id, backoff_until in self._node_backoff_until.items() if backoff_until < now]
+                for node_id in expired_nodes:
+                    del self._node_backoff_until[node_id]
+                    # Also clear failure counts for expired backoffs
+                    if node_id in self._node_failure_counts:
+                        del self._node_failure_counts[node_id]
+                
+                logging.info(f"[Persistence] Loaded state: {len(self._node_failure_counts)} nodes with failures, {len(self._node_backoff_until)} nodes in backoff")
+                if expired_nodes:
+                    logging.info(f"[Persistence] Cleaned up {len(expired_nodes)} expired backoffs")
+            else:
+                logging.info(f"[Persistence] No existing state file found at {self._persistence_file}, starting fresh")
+        except Exception as e:
+            logging.error(f"[Persistence] Failed to load state from {self._persistence_file}: {e}, starting fresh")
+            self._last_traceroute_time = {}
+            self._node_failure_counts = {}
+            self._node_backoff_until = {}
+
+    def _save_state(self):
+        """
+        Save current traceroute state to filesystem.
+        """
+        try:
+            with self._persistence_lock:
+                # Prepare data to save
+                data = {
+                    'last_traceroute_time': self._last_traceroute_time,
+                    'node_failure_counts': self._node_failure_counts,
+                    'node_backoff_until': self._node_backoff_until,
+                    'saved_at': time.time()
+                }
+                
+                # Write to temporary file first, then rename (atomic operation)
+                temp_file = f"{self._persistence_file}.tmp"
+                with open(temp_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                # Atomic rename
+                os.rename(temp_file, self._persistence_file)
+                logging.debug(f"[Persistence] State saved to {self._persistence_file}")
+        except Exception as e:
+            logging.error(f"[Persistence] Failed to save state to {self._persistence_file}: {e}")
+
+    def cleanup(self):
+        """
+        Cleanup resources and save final state.
+        """
+        logging.info("[TracerouteManager] Cleaning up and saving final state...")
+        self._save_state()
 
     def _calculate_backoff_time(self, failure_count):
         """
@@ -96,14 +173,22 @@ class TracerouteManager:
             node_id (str): The node ID that succeeded
         """
         node_id = str(node_id)
+        state_changed = False
+        
         if node_id in self._node_failure_counts:
             failure_count = self._node_failure_counts[node_id]
             if failure_count > 0:
                 logging.info(f"[Traceroute] Node {node_id} traceroute succeeded after {failure_count} failures, resetting backoff.")
             del self._node_failure_counts[node_id]
+            state_changed = True
         
         if node_id in self._node_backoff_until:
             del self._node_backoff_until[node_id]
+            state_changed = True
+        
+        # Save state if it changed
+        if state_changed:
+            self._save_state()
 
     def _record_traceroute_failure(self, node_id):
         """
@@ -121,6 +206,8 @@ class TracerouteManager:
         
         if failure_count >= self._MAX_RETRIES:
             logging.warning(f"[Traceroute] Node {node_id} has failed {failure_count} times, giving up.")
+            # Save state after updating failure count
+            self._save_state()
             return False
         
         backoff_time = self._calculate_backoff_time(failure_count)
@@ -130,6 +217,8 @@ class TracerouteManager:
         else:
             logging.info(f"[Traceroute] Node {node_id} failed {failure_count} times, no backoff applied yet.")
         
+        # Save state after updating failure and backoff data
+        self._save_state()
         return True
 
     def _format_position(self, pos):
@@ -190,6 +279,9 @@ class TracerouteManager:
                     
                     # Record success (reset failure count and backoff)
                     self._record_traceroute_success(node_id)
+                    
+                    # Save state after successful traceroute (for last_traceroute_time)
+                    self._save_state()
                     return True
                     
                 except Exception as e:
