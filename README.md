@@ -88,9 +88,9 @@ flowchart TD
     J -->|Yes| K[Give Up - Stop Trying]
     J -->|No| L[Calculate Backoff Time]
     
-    L --> M[Backoff = Interval × 2^(failures-2)]
+    L --> M["Backoff = Interval * 2^(failures-2)"]
     M --> N{Backoff > Max Backoff?}
-    N -->|Yes| O[Cap at Max Backoff<br/>Default: 24 hours]
+    N -->|Yes| O["Cap at Max Backoff<br/>Default: 24 hours"]
     N -->|No| P[Apply Calculated Backoff]
     
     O --> Q[Set Backoff Timer]
@@ -167,7 +167,6 @@ The Collector container subscribes to MQTT topics that contain Meshtastic packet
 The collector requires:
 1. An MQTT broker with Meshtastic data (usually published by the producer container)
 2. An Elasticsearch instance for storing the processed data
-
 
 ## Development
 
