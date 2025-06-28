@@ -40,13 +40,6 @@ docker run -d \
 
 The Producer container connects to a Meshtastic node via its HTTP API and forwards packets from the mesh network to an MQTT broker. This allows for remote monitoring and processing of Meshtastic network traffic.
 
-The producer includes intelligent traceroute functionality that:
-- Automatically performs traceroutes to newly discovered nodes
-- Periodically re-traceroutes known nodes at configurable intervals
-- Implements exponential backoff for nodes that consistently fail traceroutes
-- Uses configurable retry limits and maximum backoff times to prevent resource waste
-- Persists retry counts and backoff states to filesystem to survive container restarts
-
 The producer requires:
 1. A running Meshtastic node with HTTP API enabled
 2. An MQTT broker that it can connect to with the provided credentials
@@ -69,42 +62,6 @@ The traceroute functionality serves two main purposes:
 - **Global Cooldown**: Prevents overwhelming the network with too many simultaneous traceroutes
 
 ###### Backoff Strategy
-
-The system uses exponential backoff with the following logic:
-
-```mermaid
-flowchart TD
-    A[Node Discovered/Periodic Check] --> B{Global Cooldown Active?}
-    B -->|Yes| C[Skip - Wait for Cooldown]
-    B -->|No| D{Node in Backoff?}
-    D -->|Yes| E[Skip - Node Cooling Down]
-    D -->|No| F[Send Traceroute]
-    
-    F --> G{Traceroute Successful?}
-    G -->|Yes| H[Reset Failure Count]
-    G -->|No| I[Increment Failure Count]
-    
-    I --> J{Failure Count >= Max Retries?}
-    J -->|Yes| K[Give Up - Stop Trying]
-    J -->|No| L[Calculate Backoff Time]
-    
-    L --> M["Backoff = Interval * 2^(failures-2)"]
-    M --> N{Backoff > Max Backoff?}
-    N -->|Yes| O["Cap at Max Backoff<br/>Default: 24 hours"]
-    N -->|No| P[Apply Calculated Backoff]
-    
-    O --> Q[Set Backoff Timer]
-    P --> Q
-    H --> R[Update Last Traceroute Time]
-    Q --> S[Save State to Disk]
-    R --> S
-    S --> T[End]
-    C --> T
-    E --> T
-    K --> T
-```
-
-###### Backoff Calculation Examples
 
 With default settings (3-hour interval, 5 max retries, 24-hour max backoff):
 
