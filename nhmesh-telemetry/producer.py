@@ -1,7 +1,7 @@
 import logging
 from os import environ
 import sys
-import socket
+import signal
 import paho.mqtt.client as mqtt
 import json
 import meshtastic
@@ -245,6 +245,17 @@ class MeshtasticMQTTHandler:
 if __name__ == "__main__":
     """Main entry point for the Meshtastic MQTT handler."""
     
+    # Global client reference for signal handlers
+    client: MeshtasticMQTTHandler | None = None
+    
+    def signal_handler(signum, frame):
+        """Handle shutdown signals gracefully."""
+        signal_name = signal.Signals(signum).name
+        logging.info(f"Received {signal_name}, cleaning up...")
+        if client:
+            client.cleanup()
+        sys.exit(0)
+    
     parser = argparse.ArgumentParser(description='Meshtastic MQTT Handler')
     parser.add_argument('--broker', default='mqtt.nhmesh.live', action=EnvDefault, envvar="MQTT_ENDPOINT", help='MQTT broker address')
     parser.add_argument('--port', default=1883, type=int, action=EnvDefault, envvar="MQTT_PORT", help='MQTT broker port')
@@ -260,7 +271,6 @@ if __name__ == "__main__":
     parser.add_argument('--traceroute-persistence-file', default='/tmp/traceroute_state.json', action=EnvDefault, envvar="TRACEROUTE_PERSISTENCE_FILE", help='Path to file for persisting traceroute retry/backoff state (default: /tmp/traceroute_state.json)')
     args = parser.parse_args()
 
-    client = None
     try:
         client = MeshtasticMQTTHandler(
             args.broker, 
@@ -276,12 +286,12 @@ if __name__ == "__main__":
             args.traceroute_max_backoff,
             args.traceroute_persistence_file
         )
+        
+        # Register signal handlers for graceful shutdown AFTER client creation
+        signal.signal(signal.SIGTERM, signal_handler)  # Docker stop
+        signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+        
         client.connect()
-    except KeyboardInterrupt:
-        logging.info("Received KeyboardInterrupt in main, cleaning up...")
-        if client:
-            client.cleanup()
-        sys.exit(0)
     except Exception as e:
         logging.error(f"Fatal error: {e}")
         if client:
