@@ -213,10 +213,10 @@ class MeshtasticMQTTHandler:
             logging.error(f"Unknown packet type: {type(packet)}")
             return
 
-        self._update_cache_from_packet(packet_dict)
+        logging.info(f"[onReceive] Packet received from '{packet_dict.get("from", "unknown")}' to '{packet_dict.get("to", "unknown")}'")
+        logging.debug(f"[onReceive] Raw packet: {packet_dict}")
 
-        logging.info(f"[main] Packet received from '{packet_dict.get("from", "unknown")}' to '{packet_dict.get("to", "unknown")}'")
-        logging.debug(f"[main] Raw packet: {packet_dict}")
+        self._update_cache_from_packet(packet_dict)
 
         out_packet = {}
         for field_descriptor, field_value in packet_dict.items():

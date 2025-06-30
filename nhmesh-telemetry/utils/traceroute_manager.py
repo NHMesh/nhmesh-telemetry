@@ -337,8 +337,7 @@ class TracerouteManager:
                     logging.info(f"[Traceroute] Node {node_id} is in backoff for {backoff_remaining/60:.1f} more minutes, re-queueing for later.")
                     # Re-queue the job for later processing
                     self._traceroute_queue.put((node_id, retries))
-                    # Sleep a bit to avoid tight loop
-                    time.sleep(min(60, backoff_remaining))
+                    # Pull the next job from the queue
                     continue
                 
                 # Check global cooldown before processing
