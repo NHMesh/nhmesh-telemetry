@@ -203,6 +203,8 @@ class TracerouteManager:
         """
         node_id = str(node_id)
         
+        self._last_traceroute_time[node_id] = time.time()
+        
         if node_id in self._node_failure_counts:
             failure_count = self._node_failure_counts[node_id]
             logging.info(f"[Traceroute] Node {node_id} traceroute succeeded after {failure_count} failures, resetting backoff.")
@@ -300,13 +302,10 @@ class TracerouteManager:
                 
                 try:
                     self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
-                    self._last_traceroute_time[node_id] = time.time()
                     logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
                     
                     self._record_traceroute_success(node_id)
                     
-                    # Save state after successful traceroute (for last_traceroute_time)
-                    self._save_state()
                     return True
                     
                 except Exception as e:

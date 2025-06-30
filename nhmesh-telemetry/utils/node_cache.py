@@ -85,6 +85,7 @@ class NodeCache:
         
         # POSITION_APP
         if decoded.get("portnum") == "POSITION_APP":
+            logging.info(f"[NodeCache] Processing POSITION_APP packet from node {node_id}")
             payload = decoded.get("payload")
             if not isinstance(payload, dict):
                 payload_bytes = get_payload_bytes(payload)
@@ -96,13 +97,16 @@ class NodeCache:
                         if pos.latitude_i != 0 and pos.longitude_i != 0:
                             lat, lon, alt = safe_process_position(pos.latitude_i, pos.longitude_i, pos.altitude)
                             entry["position"] = (lat, lon, alt)
+                            logging.info(f"[NodeCache] Updated position for node {node_id}: ({lat:.7f}, {lon:.7f})")
                         else:
                             entry["position"] = None
+                            logging.debug(f"[NodeCache] Received empty position data for node {node_id}")
                     except Exception as e:
                         logging.warning(f"Error parsing position: {e}")
         
         # USER_APP
         if decoded.get("portnum") == "USER_APP":
+            logging.info(f"[NodeCache] Processing USER_APP packet from node {node_id}")
             payload = decoded.get("payload")
             if not isinstance(payload, dict):
                 payload_bytes = get_payload_bytes(payload)
@@ -113,11 +117,15 @@ class NodeCache:
                         user.ParseFromString(payload_bytes)
                         if user.long_name:
                             entry["long_name"] = user.long_name
+                            logging.info(f"[NodeCache] Updated long_name for node {node_id}: '{user.long_name}'")
+                        else:
+                            logging.debug(f"[NodeCache] Received empty long_name for node {node_id}")
                     except Exception as e:
                         logging.warning(f"Error parsing user: {e}")
         
         # TRACEROUTE_APP
         if decoded.get("portnum") == "TRACEROUTE_APP":
+            logging.info(f"[NodeCache] Processing TRACEROUTE_APP packet from node {node_id}")
             payload = decoded.get("payload")
             if not isinstance(payload, dict):
                 payload_bytes = get_payload_bytes(payload)
@@ -131,6 +139,7 @@ class NodeCache:
                         packet["snr_towards"] = safe_float_list(route.snr_towards)
                         packet["route_back"] = list(route.route_back)
                         packet["snr_back"] = safe_float_list(route.snr_back)
+                        logging.info(f"[NodeCache] Processed traceroute from node {node_id}: route={packet['route']}, route_back={packet['route_back']}")
                     except Exception as e:
                         logging.warning(f"Error parsing traceroute: {e}")
         
@@ -138,6 +147,15 @@ class NodeCache:
         if hasattr(self.interface, "nodes") and node_id in self.interface.nodes:
             user = self.interface.nodes[node_id].get("user", {})
             if user:
-                entry["long_name"] = user.get("longName") or entry["long_name"]
+                old_long_name = entry["long_name"]
+                new_long_name = user.get("longName") or entry["long_name"]
+                entry["long_name"] = new_long_name
+                if old_long_name != new_long_name and new_long_name:
+                    logging.info(f"[NodeCache] Updated long_name from interface DB for node {node_id}: '{new_long_name}'")
+        
+        # Log unhandled port numbers for debugging
+        portnum = decoded.get("portnum")
+        if portnum and portnum not in ["POSITION_APP", "USER_APP", "TRACEROUTE_APP"]:
+            logging.info(f"[NodeCache] Received unhandled packet type '{portnum}' from node {node_id}")
         
         return is_new_node
