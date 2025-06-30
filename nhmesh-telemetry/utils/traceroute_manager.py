@@ -80,16 +80,45 @@ class TracerouteManager:
                 
                 # Clean up expired backoffs
                 now = time.time()
-                expired_nodes = [node_id for node_id, backoff_until in self._node_backoff_until.items() if backoff_until < now]
+                expired_nodes = []
+                for node_id, backoff_until in self._node_backoff_until.items():
+                    if backoff_until < now:
+                        expired_nodes.append(node_id)
+                        time_expired = now - backoff_until
+                        logging.info(f"[Persistence] Node {node_id} backoff expired {time_expired/60:.1f} minutes ago, cleaning up")
+                
                 for node_id in expired_nodes:
                     del self._node_backoff_until[node_id]
                     # Also clear failure counts for expired backoffs
                     if node_id in self._node_failure_counts:
+                        failure_count = self._node_failure_counts[node_id]
+                        logging.info(f"[Persistence] Clearing {failure_count} failure count(s) for expired node {node_id}")
                         del self._node_failure_counts[node_id]
                 
-                logging.info(f"[Persistence] Loaded state: {len(self._node_failure_counts)} nodes with failures, {len(self._node_backoff_until)} nodes in backoff")
+                # Log detailed state information
+                total_nodes_with_state = len(set(self._last_traceroute_time.keys()) | 
+                                            set(self._node_failure_counts.keys()) | 
+                                            set(self._node_backoff_until.keys()))
+                
+                logging.info(f"[Persistence] Loaded state for {total_nodes_with_state} nodes total:")
+                logging.info(f"[Persistence] - {len(self._last_traceroute_time)} nodes with traceroute history")
+                logging.info(f"[Persistence] - {len(self._node_failure_counts)} nodes with active failures")
+                logging.info(f"[Persistence] - {len(self._node_backoff_until)} nodes in backoff")
+                
                 if expired_nodes:
-                    logging.info(f"[Persistence] Cleaned up {len(expired_nodes)} expired backoffs")
+                    logging.info(f"[Persistence] Cleaned up {len(expired_nodes)} expired backoffs: {', '.join(expired_nodes)}")
+                
+                # Log nodes with active failures and backoffs for debugging
+                if self._node_failure_counts:
+                    failure_details = [f"{node_id}({count})" for node_id, count in self._node_failure_counts.items()]
+                    logging.info(f"[Persistence] Nodes with active failures: {', '.join(failure_details)}")
+                
+                if self._node_backoff_until:
+                    backoff_details = []
+                    for node_id, backoff_until in self._node_backoff_until.items():
+                        remaining_time = (backoff_until - now) / 60
+                        backoff_details.append(f"{node_id}({remaining_time:.1f}m)")
+                    logging.info(f"[Persistence] Nodes in backoff: {', '.join(backoff_details)}")
             else:
                 logging.info(f"[Persistence] No existing state file found at {self._persistence_file}, starting fresh")
         except Exception as e:
@@ -173,22 +202,19 @@ class TracerouteManager:
             node_id (str): The node ID that succeeded
         """
         node_id = str(node_id)
-        state_changed = False
         
         if node_id in self._node_failure_counts:
             failure_count = self._node_failure_counts[node_id]
-            if failure_count > 0:
-                logging.info(f"[Traceroute] Node {node_id} traceroute succeeded after {failure_count} failures, resetting backoff.")
+            logging.info(f"[Traceroute] Node {node_id} traceroute succeeded after {failure_count} failures, resetting backoff.")
             del self._node_failure_counts[node_id]
-            state_changed = True
+        else:
+            # Log success for nodes without previous failures
+            logging.info(f"[Traceroute] Node {node_id} traceroute succeeded.")
         
         if node_id in self._node_backoff_until:
             del self._node_backoff_until[node_id]
-            state_changed = True
         
-        # Save state if it changed
-        if state_changed:
-            self._save_state()
+        self._save_state()
 
     def _record_traceroute_failure(self, node_id):
         """
@@ -277,7 +303,6 @@ class TracerouteManager:
                     self._last_traceroute_time[node_id] = time.time()
                     logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
                     
-                    # Record success (reset failure count and backoff)
                     self._record_traceroute_success(node_id)
                     
                     # Save state after successful traceroute (for last_traceroute_time)
