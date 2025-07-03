@@ -4,6 +4,7 @@ import time
 import threading
 import json
 from typing import Dict
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from utils.deduplicated_queue import DeduplicatedQueue
 
 
@@ -15,6 +16,8 @@ class TracerouteManager:
     - TRACEROUTE_INTERVAL: Interval between periodic traceroutes in seconds (default: 10800 = 3 hours)
     - TRACEROUTE_MAX_RETRIES: Maximum number of retry attempts for failed traceroutes (default: 5)
     - TRACEROUTE_MAX_BACKOFF: Maximum backoff time in seconds (default: 86400 = 24 hours)
+    - TRACEROUTE_SEND_TIMEOUT: Timeout for individual traceroute send operations in seconds (default: 30)
+    - TRACEROUTE_MAX_THREADS: Maximum number of concurrent traceroute threads (default: 2)
     - TRACEROUTE_PERSISTENCE_FILE: Path to file for persisting retry/backoff state (default: /tmp/traceroute_state.json)
     """
     
@@ -55,13 +58,16 @@ class TracerouteManager:
         
         # Queue and threading
         self._traceroute_queue = DeduplicatedQueue(key_func=lambda x: x[0])
-        self._traceroute_in_progress = threading.Lock()  # Ensure only one traceroute at a time
+        
+        # Thread pool for non-blocking traceroute execution with limited concurrency
+        max_traceroute_threads = int(os.getenv('TRACEROUTE_MAX_THREADS', 2))
+        self._traceroute_executor = ThreadPoolExecutor(max_workers=max_traceroute_threads, thread_name_prefix="TracerouteExec")
         
         # Start worker thread
         self._traceroute_worker_thread = threading.Thread(target=self._traceroute_worker, daemon=True)
         self._traceroute_worker_thread.start()
         logging.info(f"Traceroute worker thread started with single-threaded processing and {traceroute_cooldown}s cooldown.")
-        logging.info(f"Traceroute configuration: interval={self._TRACEROUTE_INTERVAL}s, max_retries={self._MAX_RETRIES}, max_backoff={self._MAX_BACKOFF}s")
+        logging.info(f"Traceroute configuration: interval={self._TRACEROUTE_INTERVAL}s, max_retries={self._MAX_RETRIES}, max_backoff={self._MAX_BACKOFF}s, max_threads={max_traceroute_threads}")
         logging.info(f"Traceroute persistence: {self._persistence_file}")
 
     def _load_state(self):
@@ -157,6 +163,13 @@ class TracerouteManager:
         Cleanup resources and save final state.
         """
         logging.info("[TracerouteManager] Cleaning up and saving final state...")
+        
+        # Shutdown the thread pool
+        if hasattr(self, '_traceroute_executor'):
+            logging.info("[TracerouteManager] Shutting down traceroute thread pool...")
+            self._traceroute_executor.shutdown(wait=True)
+            logging.info("[TracerouteManager] Traceroute thread pool shutdown complete.")
+        
         self._save_state()
 
     def _calculate_backoff_time(self, failure_count):
@@ -194,7 +207,7 @@ class TracerouteManager:
         now = time.time()
         return now < self._node_backoff_until[node_id]
 
-    def _record_traceroute_success(self, node_id):
+    def record_traceroute_success(self, node_id):
         """
         Record a successful traceroute for a node, resetting failure count.
         
@@ -285,40 +298,60 @@ class TracerouteManager:
         
         logging.info(f"[Traceroute] Running traceroute for Node {node_id} | Long name: {long_name if long_name else 'UNKNOWN'} | Position: {self._format_position(pos)} | Failures: {failure_count}")
         
-        # Acquire lock to ensure only one traceroute at a time
-        with self._traceroute_in_progress:
+        try:
+            # Log node info before traceroute
             try:
-                # Log node info before traceroute
-                try:
-                    info = self.interface.getMyNodeInfo()
-                    logging.info(f"[Traceroute] Node info before traceroute: {info}")
-                except Exception as e:
-                    logging.error(f"[Traceroute] Failed to get node info before traceroute: {e}")
-                
-                # Update global traceroute time before attempting
-                self._last_global_traceroute_time = time.time()
+                info = self.interface.getMyNodeInfo()
+                logging.debug(f"[Traceroute] Node info before traceroute: {info}")
+            except Exception as e:
+                logging.error(f"[Traceroute] Failed to get node info before traceroute: {e}")
+            
+            # Update global traceroute time before attempting
+            self._last_global_traceroute_time = time.time()
 
-                logging.debug(f"[Traceroute] About to send traceroute to {node_id} and setting last traceroute time.")
+            logging.debug(f"[Traceroute] About to send traceroute to {node_id} and setting last traceroute time.")
+            
+            try:
+                # Use thread pool to prevent blocking indefinitely with limited concurrency
+                timeout_seconds = int(os.getenv('TRACEROUTE_SEND_TIMEOUT', 30))
+                
+                # Submit traceroute to thread pool and wait with timeout
+                future = self._traceroute_executor.submit(
+                    self.interface.sendTraceRoute, 
+                    dest=node_id, 
+                    hopLimit=10
+                )
                 
                 try:
-                    self.interface.sendTraceRoute(dest=node_id, hopLimit=10)
+                    # Wait for completion with timeout
+                    future.result(timeout=timeout_seconds)
                     logging.info(f"[Traceroute] Traceroute command sent for node {node_id}.")
-                    
-                    self._record_traceroute_success(node_id)
-                    
+                    # Note: Success will be recorded when we receive the TRACEROUTE_APP response packet
                     return True
                     
-                except Exception as e:
-                    logging.error(f"[Traceroute] Error sending traceroute to node {node_id}: {e}")
-                    # Record failure and check if we should continue retrying
+                except FutureTimeoutError:
+                    logging.error(f"[Traceroute] Traceroute to node {node_id} timed out after {timeout_seconds} seconds")
+                    # Cancel the future to prevent resource leaks
+                    future.cancel()
                     self._record_traceroute_failure(node_id)
                     return False
                     
+                except Exception as e:
+                    logging.error(f"[Traceroute] Error in traceroute execution for node {node_id}: {e}")
+                    self._record_traceroute_failure(node_id)
+                    return False
+                
             except Exception as e:
-                logging.error(f"[Traceroute] Unexpected error sending traceroute to node {node_id}: {e}")
-                # Record failure for unexpected errors too
+                logging.error(f"[Traceroute] Error sending traceroute to node {node_id}: {e}")
+                # Record failure and check if we should continue retrying
                 self._record_traceroute_failure(node_id)
                 return False
+                
+        except Exception as e:
+            logging.error(f"[Traceroute] Unexpected error sending traceroute to node {node_id}: {e}")
+            # Record failure for unexpected errors too
+            self._record_traceroute_failure(node_id)
+            return False
 
     def _traceroute_worker(self):
         """

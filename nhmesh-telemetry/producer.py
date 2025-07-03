@@ -94,7 +94,7 @@ class MeshtasticMQTTHandler:
         if node_id is None:
             return
             
-        is_new_node = self.node_cache.update_from_packet(packet)
+        is_new_node = self.node_cache.update_from_packet(packet, self.traceroute_manager)
         
         # Delegate traceroute queueing logic to TracerouteManager
         self.traceroute_manager.process_packet_for_traceroutes(node_id, is_new_node)

@@ -4,7 +4,6 @@ from utils.number_utils import safe_float_list, safe_process_position
 
 class NodeCache:
     """
-    Manages node cache and packet processing logic.
     Keeps track of node information extracted from packets.
     """
     
@@ -51,12 +50,13 @@ class NodeCache:
         """
         return str(node_id) in self._node_cache
     
-    def update_from_packet(self, packet):
+    def update_from_packet(self, packet, traceroute_manager=None):
         """
         Update node cache from incoming packet and process packet data.
         
         Args:
             packet (dict): The received packet dictionary
+            traceroute_manager: Optional TracerouteManager instance to notify of traceroute responses
             
         Returns:
             bool: True if this is a new node, False if existing
@@ -136,10 +136,15 @@ class NodeCache:
                         route.ParseFromString(payload_bytes)
                         # Add route information to the packet for MQTT publishing
                         packet["route"] = list(route.route)
-                        packet["snr_towards"] = safe_float_list(route.snr_towards)
+                        packet["snr_towards"] = safe_float_list(list(route.snr_towards))
                         packet["route_back"] = list(route.route_back)
-                        packet["snr_back"] = safe_float_list(route.snr_back)
+                        packet["snr_back"] = safe_float_list(list(route.snr_back))
                         logging.info(f"[NodeCache] Processed traceroute from node {node_id}: route={packet['route']}, route_back={packet['route_back']}")
+                        
+                        # Notify traceroute manager that we received a response
+                        if traceroute_manager:
+                            traceroute_manager.record_traceroute_success(node_id)
+                            
                     except Exception as e:
                         logging.warning(f"Error parsing traceroute: {e}")
         
