@@ -1,10 +1,19 @@
 # nhmesh-telemetry
 
+> [!IMPORTANT]
+> This repository has been archived as it's superceded by the following two repositories:
+> - https://github.com/NHMesh/nhmesh-producer
+> - https://github.com/NHMesh/nhmesh-telemetry
+
 ## Docker Images
 
 This project provides two Docker images:
 
 ### nhmesh/telemetry-producer
+
+> [!IMPORTANT]
+> The `telemetry-producer` image has been moved to the following location:
+> - https://github.com/NHMesh/nhmesh-producer
 
 A Docker container that connects to a Meshtastic node and publishes packets to an MQTT broker.
 
@@ -41,6 +50,10 @@ The producer requires:
 2. An MQTT broker that it can connect to with the provided credentials
 
 ### nhmesh/telemetry-collector
+
+> [!IMPORTANT]
+> The `telemetry-collector` image has been moved to the following location:
+> - https://github.com/NHMesh/nhmesh-collector
 
 A Docker container that subscribes to MQTT topics with Meshtastic data and stores it into Elasticsearch.
 
